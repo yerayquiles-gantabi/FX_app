@@ -1,44 +1,78 @@
 import asyncio
 from pyppeteer import launch
-from PIL import Image
 
-async def capture_full_page(url, output_image_path, output_pdf_path):
-    # Iniciar el navegador
-    browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-    page = await browser.newPage()
+async def capture_sections(url, output_pdf_path):
+    try:
+        # Iniciar el navegador
+        print("Lanzando navegador...")
+        browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+        page = await browser.newPage()
 
-    # Configurar el tamaño inicial de la ventana
-    await page.setViewport({'width': 1920, 'height': 1080})
+        # Configurar el tamaño inicial de la ventana
+        await page.setViewport({'width': 1920, 'height': 1080})
 
-    # Cargar la página y esperar hasta que esté completamente cargada
-    await page.goto(url, {'waitUntil': 'networkidle2'})
-    await asyncio.sleep(5)  # Asegurarse de que el contenido dinámico termine de cargar
+        # Añadir estilos CSS personalizados
+        print("Cargando CSS personalizado...")
+        await page.addStyleTag({
+            'content': """
+            @page { margin: 1in; }
+            body { margin: 0; padding: 1em; box-sizing: border-box; }
+            .no-overlap { page-break-before: always; }
+            """
+        })
 
-    # Obtener el tamaño total de la página
-    dimensions = await page.evaluate("""() => {
-        return {
-            width: document.body.scrollWidth,
-            height: document.body.scrollHeight
-        };
-    }""")
-    print(f"Tamaño de la página: {dimensions['width']}x{dimensions['height']}")
+        # Cargar la página y esperar hasta que esté completamente cargada
+        print(f"Cargando la página: {url}")
+        response = await page.goto(url, {'waitUntil': 'networkidle2'})
+        if response.status != 200:
+            print(f"Error al cargar la página. Estado HTTP: {response.status}")
+            await browser.close()
+            return
 
-    # Ajustar el viewport al tamaño total de la página
-    await page.setViewport({'width': dimensions['width'], 'height': dimensions['height']})
+        # Esperar contenido dinámico
+        print("Esperando contenido dinámico...")
+        await asyncio.sleep(3)
 
-    # Capturar la página completa como imagen
-    await page.screenshot({'path': output_image_path, 'fullPage': True})
-    print(f"Captura completa guardada en {output_image_path}")
-
-    # Guardar la página como PDF
-    await page.pdf({'path': output_pdf_path, 'format': 'A4'})
-    print(f"PDF guardado en {output_pdf_path}")
-
-    await browser.close()
+        # Generar PDF sección por sección
+        sections = await page.evaluate("""() => {
+            const sections = document.querySelectorAll('.no-overlap');
+            return Array.from(sections).map((section, index) => ({
+                selector: `.no-overlap:nth-of-type(${index + 1})`,
+                id: `section-${index + 1}`
+            }));
+        }""")
+        
+        print(f"Secciones detectadas: {len(sections)}")
+        pdfs = []
+        
+        for section in sections:
+            print(f"Procesando sección {section['id']}...")
+            element = await page.querySelector(section['selector'])
+            if element:
+                bounding_box = await element.boundingBox()
+                if bounding_box:
+                    await page.setViewport({
+                        'width': 1920,
+                        'height': int(bounding_box['height'] + 20)
+                    })
+                    pdf_path = f"{output_pdf_path}-{section['id']}.pdf"
+                    await page.pdf({
+                        'path': pdf_path,
+                        'printBackground': True,
+                        'preferCSSPageSize': True,
+                        'clip': bounding_box
+                    })
+                    pdfs.append(pdf_path)
+        
+        print(f"PDFs generados: {pdfs}")
+    except Exception as e:
+        print(f"Error durante la captura: {e}")
+    finally:
+        # Cerrar el navegador
+        await browser.close()
+        print("Navegador cerrado.")
 
 # Ejecutar la captura
 url = "http://99.81.70.181:8000/"
-output_image_path = "./output/prueba13.png"
-output_pdf_path = "./output/prueba13.pdf"
-
-asyncio.run(capture_full_page(url, output_image_path, output_pdf_path))
+output_pdf_path = "./output/mejorada_prueba13"
+asyncio.run(capture_sections(url, output_pdf_path))
