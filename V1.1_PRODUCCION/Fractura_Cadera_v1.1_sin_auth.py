@@ -197,6 +197,7 @@ st.markdown("<div class='no-overlap'></div>", unsafe_allow_html=True)
 
 with st.container():
     st.markdown("<div class='no-overlap'></div>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)  # Dos líneas vacías
 
     # Valores fijos
     destino = ['Domicilio', 'Fallecido', 'Hospitalización Agudos', 'Residencia/Institucionalizado']
@@ -283,6 +284,9 @@ with st.container():
 # --------------------------VIVO A LOS 30 DIAS ------------------------
 # ---------------------------------------------------------------------
 with st.container():
+    st.markdown("<div class='no-overlap'></div>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)  # Dos líneas vacías
+
     # Valores fijos para las probabilidades de predicción y simulación
     situacion = ['Fallece', 'Vivo a 30 días']
     predict_vivo_alta = [0.15, 0.85]  # Probabilidad fija para predicción
