@@ -1,0 +1,17 @@
+{
+    "id_paciente": "AAAA193204499",
+    "sexo": "Hombre",
+    "edad": 85,
+    "lugar_residencia": "Domicilio",
+    "tipo_fractura": "Pertrocantérea",
+    "lado_fractura": "Derecho",
+    "resultado_demora": 2.8,
+    "predict_estancia": 10.6,
+    "postoperatorio": 7.8,
+    "postoperatorio_fijo": 7.8,
+    "prediccion_costes": 7290.00,
+    "ahorro_costes": 710.00,
+    "predict_destino_alta": [0.65, 0.05, 0.20, 0.10],
+    "predict_movilidad_alta": [0.10, 0.25, 0.40, 0.25],
+    "predict_vivo_alta": [0.15, 0.85]
+}

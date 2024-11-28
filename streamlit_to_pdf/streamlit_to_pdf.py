@@ -109,3 +109,4 @@ def combine_odd_pages(pdf_paths, output_path):
 url = "http://99.81.70.181:8000/"
 output_pdf_path = "./streamlit_to_pdf/informe"
 asyncio.run(capture_sections(url, output_pdf_path))
+
