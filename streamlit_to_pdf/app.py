@@ -237,9 +237,9 @@ with st.container():
 
     crear_tabla_y_grafico(
     titulo="Probabilidad de situación al alta",
-    categorias=["Curación total", "Mejoría", "Sin cambios", "Agravamiento", "In extremis", "Con secuelas", "Exitus", "Mejoria a residencia"],
+    categorias=["Curación total", "Mejoría", "Sin cambios", "Agravamiento", "In extremis", "Con secuelas", "Exitus", "Mejoría a residencia"],
     porcentajes=predict_situacion_alta,
-    orden=["Curación total", "Mejoría", "Sin cambios", "Agravamiento", "In extremis", "Con secuelas", "Exitus", "Mejoria a residencia"],
+    orden=["Curación total", "Mejoría", "Sin cambios", "Agravamiento", "In extremis", "Con secuelas", "Exitus", "Mejoría a residencia"],
 )
     
     # -------------------------- VIVO AL ALTA ------------------------
