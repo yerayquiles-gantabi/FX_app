@@ -68,41 +68,52 @@ async def capture_sections(url, es_simulacion=False):
             except Exception as e:
                 print(f"⚠️ No se pudo cambiar a modo simulador: {e}")
 
-        # 5. INYECTAR CSS
-        print("🎨 Cargando estilos y ocultando Sidebar...")
+        # 5. INYECTAR CSS PARA OCULTAR ELEMENTOS
+
+        print("🎨 Cargando estilos y ocultando elementos...")
         await page.addStyleTag({
             'content': """
             @page { margin: 1in; }
             body { margin: 0; padding: 1em; box-sizing: border-box; }
             .no-overlap { page-break-before: always; }
             
-            /* OCULTAR SIDEBAR IZQUIERDA */
-            [data-testid="stSidebar"] { 
-                display: none !important; 
-                visibility: hidden !important;
-            }
-            /* Ocultar botón de colapsar sidebar */
-            [data-testid="collapsedControl"] {
-                display: none !important;
-            }
+            /* --- 1. OCULTAR ESTRUCTURA DE STREAMLIT --- */
+            [data-testid="stSidebar"] { display: none !important; }
+            [data-testid="collapsedControl"] { display: none !important; }
+            header { display: none !important; }
+            footer { display: none !important; }
             
-            /* Ajustar margen izquierdo si queda hueco */
+            /* Ajustar contenido principal */
             .main .block-container {
                 max-width: 100% !important;
                 padding-left: 2rem !important;
                 padding-right: 2rem !important;
             }
             
-            /* Ocultar botones de descarga y nueva simulación */
-            button:has-text("Descargar PDF"),
-            button:has-text("Nueva simulación") {
-                display: none !important;
-            }
+            /* --- 2. ZONA NUCLEAR: OCULTAR TODOS LOS BOTONES --- */
+            
+            /* Ocultar etiquetas button estándar */
+            button { display: none !important; }
+            
+            /* Ocultar contenedores de botones de Streamlit */
+            [data-testid="stButton"] { display: none !important; }
+            
+            /* --- 3. LA SOLUCIÓN AL BOTÓN DE DESCARGA --- */
+            
+            /* Opción A: Por ID de test de Streamlit */
+            [data-testid="stDownloadButton"] { display: none !important; }
+            
+            /* Opción B: Por clase CSS específica */
+            .stDownloadButton { display: none !important; }
+            
+            /* Opción C (LA DEFINITIVA): Ocultar cualquier enlace de descarga */
+            a[download] { display: none !important; visibility: hidden !important; }
+            
+            /* --- 4. LIMPIEZA FINAL --- */
+            hr:last-of-type { display: none !important; }
+            .main .block-container > div:last-child { display: none !important; }
             """
         })
-
-        print("⏳ Esperando renderizado (5s)...")
-        await asyncio.sleep(5)
 
         # 6. DETECTAR SECCIONES
         sections = await page.evaluate("""() => {

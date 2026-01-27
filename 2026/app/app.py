@@ -10,9 +10,13 @@ import subprocess
 import sys
 import pytz
 
+# Configurar zona horaria
 zona_horaria = pytz.timezone('Europe/Madrid')
 
-# --- FUNCIONES DE MODELOS ---
+# ==========================================
+# 1. FUNCIONES AUXILIARES Y DE CARGA
+# ==========================================
+
 @st.cache_resource
 def cargar_modelo_real(nombre_carpeta):
     try:
@@ -117,40 +121,55 @@ def convertir_a_texto(valor, tipo):
     }
     return conversiones.get(tipo, {}).get(valor, str(valor))
 
-def generar_pdf_simulacion():
+# --- FUNCIÓN UNIFICADA PARA GENERAR PDF ---
+def generar_pdf_backend(es_simulacion=False):
     """
-    Ejecuta el script de generación de PDF para la página de simulación
+    Llama al script generate_pdf.py con los argumentos adecuados
+    y devuelve los bytes del PDF generado.
     """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(base_dir, "generate_pdf.py")
+    base_path_app = "/home/ubuntu/STG-fractura_cadera/2026/app"
+    
+    # Definir ruta de salida según el modo (debe coincidir con generate_pdf.py)
+    if es_simulacion:
+        pdf_path = os.path.join(base_path_app, "informes", "simulacion", "informe_final.pdf")
+        args = [sys.executable, script_path, "--simulacion"]
+    else:
+        pdf_path = os.path.join(base_path_app, "informes", "original", "informe_final.pdf")
+        args = [sys.executable, script_path]
+
+    # 1. Borrar archivo anterior si existe
+    if os.path.exists(pdf_path):
+        try:
+            os.remove(pdf_path)
+        except:
+            pass
+
     try:
-        # Marcar que estamos en modo simulación
-        st.session_state['generando_pdf_simulacion'] = True
-        
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(base_dir, "generate_pdf.py")
-        
+        # 2. Ejecutar script
         result = subprocess.run(
-            [sys.executable, script_path],
+            args,
             capture_output=True,
             text=True,
             timeout=120
         )
         
-        # Limpiar flag
-        st.session_state['generando_pdf_simulacion'] = False
-        
-        if result.returncode == 0:
-            return True, "PDF generado correctamente"
+        # 3. Verificar y leer
+        if result.returncode == 0 and os.path.exists(pdf_path):
+            with open(pdf_path, "rb") as f:
+                return f.read(), None 
         else:
-            return False, f"Error: {result.stderr}"
+            msg = result.stderr if result.stderr else "No se generó el archivo."
+            return None, msg
             
-    except subprocess.TimeoutExpired:
-        st.session_state['generando_pdf_simulacion'] = False
-        return False, "Timeout: El proceso tardó demasiado"
     except Exception as e:
-        st.session_state['generando_pdf_simulacion'] = False
-        return False, f"Error al ejecutar script: {str(e)}"
+        return None, str(e)
 
-# Función para mostrar la visualización (usado en ambos modos)
+# ==========================================
+# 2. COMPONENTE VISUALIZACIÓN
+# ==========================================
+
 def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, predict_estancia_total, 
                           predict_situacion_alta, situacion_alta, categorias_situacion, 
                           es_simulacion=False, gidenpac="Simulación"):
@@ -160,6 +179,7 @@ def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, p
         "Empeora": "#FF2B2B"
     }
     
+    # Fecha/Hora actual (Madrid)
     fecha_actual = datetime.now(zona_horaria).strftime("%d/%m/%Y %H:%M")
     fecha_ingreso = data.get("fllegada_map", fecha_actual) if not es_simulacion else fecha_actual
     
@@ -359,6 +379,10 @@ def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, p
         colores=colores_dinamicos
     )
 
+# ==========================================
+# 3. EJECUCIÓN PRINCIPAL
+# ==========================================
+
 # Cargar CSS
 load_css("custom_styles.css")
 
@@ -378,14 +402,14 @@ diccionario_nombres = {
 st.sidebar.title("⚙️ Configuración")
 modo = st.sidebar.radio(
     "Selecciona el modo:",
-    ["📊 Visualización paciente", "🔬 Simulador"],
+    ["Visualización paciente", "Simulador"],
     index=0
 )
 
-# ============================================
-# MODO VISUALIZACIÓN PACIENTE
-# ============================================
-if modo == "📊 Visualización paciente":
+# -----------------------------------------------------------------------------
+# MODO: VISUALIZACIÓN PACIENTE
+# -----------------------------------------------------------------------------
+if modo == "Visualización paciente":
     # Cargar datos desde JSON
     with open("paciente_SRRD193407690.json", "r") as file:
         data_raw = json.load(file)
@@ -427,114 +451,95 @@ if modo == "📊 Visualización paciente":
         gidenpac=gidenpac
     )
     
-# -------------------------------------------------------------------------
-    # MODIFICACIÓN: BOTÓN DE DESCARGA DIRECTO Y MÁS ANCHO
-    # -------------------------------------------------------------------------
+    # --- DESCARGA PDF: SISTEMA DE 2 PASOS (PACIENTE) ---
     st.markdown("---")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Función para generar y leer el PDF en memoria (cacheada para no re-ejecutar si no cambia)
-    @st.cache_data(show_spinner="Preparando archivo de descarga...")
-    def obtener_binario_pdf():
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(base_dir, "generate_pdf.py")
-        
-        try:
-            # Ejecutar script
-            result = subprocess.run(
-                [sys.executable, script_path],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            
-            if result.returncode == 0:
-                # Ruta del PDF generado
-                pdf_path = "/home/ubuntu/STG-fractura_cadera/2026/app/informes/informe_final.pdf"
-                
-                if os.path.exists(pdf_path):
-                    with open(pdf_path, "rb") as f:
-                        return f.read(), None # Retorna bytes y sin error
-                else:
-                    return None, "PDF generado pero no encontrado."
-            else:
-                return None, f"Error script: {result.stderr}"
-                
-        except Exception as e:
-            return None, str(e)
+    # 1. Estado
+    if 'pdf_paciente_bytes' not in st.session_state:
+        st.session_state.pdf_paciente_bytes = None
 
-    # Obtenemos los bytes del PDF
-    pdf_bytes, error_msg = obtener_binario_pdf()
-
-    # Diseño de columnas para hacer el botón más ancho
-    # [1, 3, 1] hace que la columna central sea mucho más ancha que antes [2, 1, 2]
-    col_download = st.columns([1, 3, 1])[1] 
+    col_botones = st.columns([1, 3, 1])[1]
     
-    with col_download:
-        if pdf_bytes:
+    with col_botones:
+        # A: Aún no generado -> Botón Generar
+        if st.session_state.pdf_paciente_bytes is None:
+            if st.button("📄 Generar Informe PDF", type="primary", use_container_width=True):
+                with st.spinner("⏳ Generando informe... (Espere unos segundos)"):
+                    pdf_bytes, error = generar_pdf_backend(es_simulacion=False)
+                    
+                    if pdf_bytes:
+                        st.session_state.pdf_paciente_bytes = pdf_bytes
+                        st.rerun()
+                    else:
+                        st.error(f"Error al generar: {error}")
+
+        # B: Generado -> Botón Descargar
+        else:
             st.download_button(
                 label="📥 Descargar Informe PDF",
-                data=pdf_bytes,
+                data=st.session_state.pdf_paciente_bytes,
                 file_name=f"informe_{gidenpac}_{datetime.now().strftime('%Y%m%d')}.pdf",
                 mime="application/pdf",
-                type="primary",           # Estilo destacado
-                use_container_width=True  # Ocupa todo el ancho de la columna
+                type="primary",
+                use_container_width=True
             )
-        else:
-            st.error(f"No se pudo generar el botón de descarga: {error_msg}")
+            
 
-# ============================================
-# MODO SIMULADOR
-# ============================================
+# -----------------------------------------------------------------------------
+# MODO: SIMULADOR
+# -----------------------------------------------------------------------------
 else:
     st.markdown("<h1 style='text-align: center;'>🔬 Simulador de Predicción</h1>", unsafe_allow_html=True)
     st.markdown("---")
     
-    # Inicializar session_state
+    # Estado inicial
     if 'simulacion_realizada' not in st.session_state:
         st.session_state.simulacion_realizada = False
     
-    # Botón para resetear simulación
+    if 'pdf_simulacion_bytes' not in st.session_state:
+        st.session_state.pdf_simulacion_bytes = None
+
+    # BOTONES SUPERIORES (SOLO SI YA SE SIMULÓ)
     if st.session_state.simulacion_realizada:
         col_reset, col_download = st.columns([1, 1])
+        
         with col_reset:
             if st.button("🔄 Nueva simulación", type="secondary", use_container_width=True):
                 st.session_state.simulacion_realizada = False
-                # Limpiar flag de PDF simulación
-                if 'generando_pdf_simulacion' in st.session_state:
-                    del st.session_state['generando_pdf_simulacion']
+                st.session_state.pdf_simulacion_bytes = None
                 st.rerun()
         
         with col_download:
-            if st.button("📥 Descargar PDF Simulación", type="primary", use_container_width=True):
-                with st.spinner("Generando PDF de simulación... Esto puede tardar unos segundos."):
-                    exito, mensaje = generar_pdf_simulacion()
-                    
-                    if exito:
-                        st.success(mensaje)
+            # --- DESCARGA PDF: SISTEMA DE 2 PASOS (SIMULADOR) ---
+            if st.session_state.pdf_simulacion_bytes is None:
+                if st.button("📄 Generar PDF Simulación", type="primary", use_container_width=True):
+                    with st.spinner("⏳ Generando PDF de simulación..."):
+                        pdf_bytes, error = generar_pdf_backend(es_simulacion=True)
                         
-                        pdf_path = "/home/ubuntu/STG-fractura_cadera/2026/app/informes/informe_final.pdf"
-                        if os.path.exists(pdf_path):
-                            # Cargar JSON para obtener el gidenpac
-                            with open("paciente_SRRD193407690.json", "r") as file:
-                                data_raw = json.load(file)
-                            data_original = enriquecer_datos_para_ui(data_raw)
-                            gidenpac_real = data_original["gidenpac"]
-                            
-                            with open(pdf_path, "rb") as pdf_file:
-                                st.download_button(
-                                    label="💾 Guardar PDF en tu ordenador",
-                                    data=pdf_file,
-                                    file_name=f"simulacion_{gidenpac_real}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                                    mime="application/pdf",
-                                    use_container_width=True
-                                )
+                        if pdf_bytes:
+                            st.session_state.pdf_simulacion_bytes = pdf_bytes
+                            st.rerun()
                         else:
-                            st.warning("PDF generado pero no encontrado en la ruta esperada")
-                    else:
-                        st.error(mensaje)
+                            st.error(f"Error: {error}")
+            else:
+                # Nombre de archivo con ID original si está disponible
+                try:
+                    with open("paciente_SRRD193407690.json", "r") as file:
+                         gidenpac_real = json.load(file).get("gidenpac", "simulacion")
+                except:
+                    gidenpac_real = "simulacion"
+
+                st.download_button(
+                    label="📥 Descargar PDF Simulación",
+                    data=st.session_state.pdf_simulacion_bytes,
+                    file_name=f"simulacion_{gidenpac_real}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True
+                )
     
-    # FORMULARIO DE ENTRADA
+    # FORMULARIO DE ENTRADA (SOLO SI NO HAY RESULTADOS)
     if not st.session_state.simulacion_realizada:
         st.header("📋 Datos del paciente")
         col1, col2, col3 = st.columns(3)
@@ -662,10 +667,9 @@ else:
             
             st.session_state.simulacion_realizada = True
             st.rerun()
-    
-    # MOSTRAR RESULTADOS
+
+    # MOSTRAR RESULTADOS (Si ya se simuló)
     if st.session_state.simulacion_realizada:
-        # Cargar JSON para obtener el gidenpac real
         with open("paciente_SRRD193407690.json", "r") as file:
             data_raw = json.load(file)
         data_original = enriquecer_datos_para_ui(data_raw)
