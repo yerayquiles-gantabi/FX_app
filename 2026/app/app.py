@@ -1,17 +1,20 @@
 import pandas as pd  
-import plotly.express as px  
 import streamlit as st 
 import json
 import joblib
 import os
 from datetime import datetime
-from utils_mapeo import enriquecer_datos_para_ui
 import subprocess
 import sys
-import pytz
 
-# Configurar zona horaria
-zona_horaria = pytz.timezone('Europe/Madrid')
+# Imports de componentes personalizados
+from utils.utils_mapeo import enriquecer_datos_para_ui
+from utils.componentes_visualizacion import mostrar_visualizacion
+from utils.componentes_simulador import (
+    mostrar_formulario_simulador,
+    mostrar_resultados_simulador,
+    mostrar_botones_accion_simulador
+)
 
 # ==========================================
 # DETECCIÓN DE MODO DESDE URL (PARA PDF)
@@ -26,7 +29,6 @@ if modo_url == "simulacion":
         with open(temp_data_path, "r") as f:
             datos_temp = json.load(f)
             
-        # Restaurar session_state
         st.session_state.simulacion_realizada = True
         st.session_state.data_simulado = {k: v for k, v in datos_temp.items() 
                                           if not k.startswith('predict') and k not in ['situacion_alta', 'categorias_situacion']}
@@ -38,69 +40,12 @@ if modo_url == "simulacion":
         st.session_state.categorias_situacion_sim = datos_temp.get("categorias_situacion", ["Mejora", "Empeora"])
 
 # ==========================================
-# 1. FUNCIONES AUXILIARES Y DE CARGA
+# FUNCIONES DE MODELO
 # ==========================================
-def preparar_datos_para_modelo(datos_simulacion):
-    """
-    Convierte datos del simulador (con sufijo _map) al formato que espera el modelo (sin sufijo)
-    y añade las columnas one-hot encoded necesarias
-    """
-    # Cargar datos base del paciente real para obtener estructura completa
-    with open("paciente_SRRD193407690.json", "r") as file:
-        data_base = json.load(file)
-    
-    # Crear diccionario de salida con estructura base
-    datos_modelo = {}
-    
-    # Mapeo de nombres: simulador -> modelo
-    mapeo = {
-        'itipsexo_map': 'itipsexo',
-        'ds_edad_map': 'ds_edad',
-        'iotrocen_map': 'iotrocen',
-        'ds_centro_afueras_map': 'ds_centro_afueras',
-        'ntensmin_map': 'ntensmin',
-        'ntensmax_map': 'ntensmax',
-        'ntempera_map': 'ntempera',
-        'nsatuoxi_map': 'nsatuoxi',
-        'ds_ITU_map': 'ds_ITU',
-        'ds_insuficiencia_respiratoria_map': 'ds_insuficiencia_respiratoria',
-        'ds_insuficiencia_cardiaca_map': 'ds_insuficiencia_cardiaca',
-        'ds_deterioro_cognitivo_map': 'ds_deterioro_cognitivo',
-        'ds_insuficiencia_renal_map': 'ds_insuficiencia_renal',
-        'ds_HTA_map': 'ds_HTA',
-        'ds_diabetes_map': 'ds_diabetes',
-        'ds_obesidad_map': 'ds_obesidad',
-        'ds_osteoporosis_map': 'ds_osteoporosis',
-        'ds_anemia_map': 'ds_anemia',
-        'ds_vitamina_d_map': 'ds_vitamina_d',
-        'ds_acido_folico_map': 'ds_acido_folico',
-        'ds_alergia_medicamentosa_map': 'ds_alergia_medicamentosa',
-        'ds_alergia_alimentaria_map': 'ds_alergia_alimenticia',  # OJO: cambia de alimentaria a alimenticia
-        'ds_otra_alergias_map': 'ds_otras_alergias',  # OJO: cambia de otra a otras
-        'barthel_map': 'Barthel',  # OJO: mayúscula
-        'braden_map': 'braden',
-        'riesgo_caida_map': 'riesgo_caida',
-        'movilidad_map': 'movilidad',
-        'ds_izq_der_map': 'ds_izq_der',
-        'gdiagalt_map': 'gdiagalt'
-    }
-    
-    # Aplicar mapeo
-    for key_simulador, key_modelo in mapeo.items():
-        if key_simulador in datos_simulacion:
-            datos_modelo[key_modelo] = datos_simulacion[key_simulador]
-    
-    # Copiar todas las columnas one-hot encoded del paciente base
-    for key in data_base.keys():
-        if key.startswith('gdiagalt_') or key.startswith('ds_izq_der_') or \
-           key.startswith('ds_dia_semana_') or key.startswith('ds_mes_') or \
-           key.startswith('ds_turno_'):
-            datos_modelo[key] = data_base[key]
-    
-    return datos_modelo
 
 @st.cache_resource
 def cargar_modelo_real(nombre_carpeta):
+    """Carga modelo de regresión y sus componentes"""
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         ruta_modelo = os.path.join(base_dir, '..', 'models', nombre_carpeta)
@@ -109,7 +54,8 @@ def cargar_modelo_real(nombre_carpeta):
         path_scaler = os.path.join(ruta_modelo, 'scaler.pkl')
         path_cols = os.path.join(ruta_modelo, 'columnas_modelo.pkl')
         
-        if not os.path.exists(path_modelo): return None, None, None
+        if not os.path.exists(path_modelo): 
+            return None, None, None
 
         modelo = joblib.load(path_modelo)
         scaler = joblib.load(path_scaler)
@@ -118,24 +64,27 @@ def cargar_modelo_real(nombre_carpeta):
     except:
         return None, None, None
 
+
 def predecir_dias(modelo, scaler, cols, datos_json):
-    if modelo is None: return 0.0
+    """Predice días de estancia"""
+    if modelo is None: 
+        return 0.0
     try:
         df_input = pd.DataFrame(columns=cols, dtype=float)
-                
         for col in df_input.columns:
             val = datos_json.get(col, 0)
             df_input.loc[0, col] = float(val)
         
         pred = modelo.predict(scaler.transform(df_input))[0]
-        
         return max(0, pred)
     except Exception as e:
         print(f"❌ Error en predicción: {e}")
         return 0.0
 
+
 @st.cache_resource
 def cargar_modelo_clasificacion(nombre_carpeta):
+    """Carga modelo de clasificación y sus componentes"""
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         ruta_modelo = os.path.join(base_dir, '..', 'models', nombre_carpeta)
@@ -145,7 +94,8 @@ def cargar_modelo_clasificacion(nombre_carpeta):
         path_cols = os.path.join(ruta_modelo, 'columnas_modelo.pkl')
         path_clases = os.path.join(ruta_modelo, 'clases_target.pkl')
         
-        if not os.path.exists(path_modelo): return None, None, None, None
+        if not os.path.exists(path_modelo): 
+            return None, None, None, None
 
         modelo = joblib.load(path_modelo)
         scaler = joblib.load(path_scaler)
@@ -155,8 +105,11 @@ def cargar_modelo_clasificacion(nombre_carpeta):
     except:
         return None, None, None, None
 
+
 def predecir_probabilidades(modelo, scaler, cols, datos_json):
-    if modelo is None: return []
+    """Predice probabilidades de clasificación"""
+    if modelo is None: 
+        return []
     try:
         df_input = pd.DataFrame(columns=cols, dtype=float)
         for col in df_input.columns:
@@ -168,68 +121,33 @@ def predecir_probabilidades(modelo, scaler, cols, datos_json):
     except:
         return []
 
+# ==========================================
+# FUNCIONES AUXILIARES
+# ==========================================
+
 def load_css(file_path):
+    """Carga estilos CSS personalizados"""
     with open(file_path, "r") as f:
         css = f.read()
         st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
-def crear_tabla_y_grafico(titulo, categorias, porcentajes, orden, colores=None):
-    data = {"Categoría": categorias, "Porcentaje predicción": porcentajes}
-    df = pd.DataFrame(data)
 
-    df_tabla = df.copy()
-    df_tabla["Porcentaje predicción"] = df_tabla["Porcentaje predicción"].apply(lambda x: f"{x*100:.0f}%")
-
-    st.subheader(titulo)
-    st.dataframe(df_tabla)
-
-    fig = px.pie(
-        df,
-        values="Porcentaje predicción",
-        names="Categoría",
-        title=titulo,
-        color="Categoría",
-        category_orders={"Categoría": orden},
-        color_discrete_sequence=colores,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-def convertir_a_texto(valor, tipo):
-    """Convierte valores numéricos a texto legible"""
-    conversiones = {
-        'sexo': {0: 'Mujer', 1: 'Hombre'},
-        'binario': {0: 'No', 1: 'Sí'},
-        'residencia': {0: 'Centro', 1: 'Afueras'},
-        'lado': {0: 'Izquierdo', 1: 'Derecho'},
-        'riesgo_caida': {0: 'Bajo', 1: 'Medio', 2: 'Alto'},
-        'movilidad': {0: 'Independiente', 1: 'Ayuda', 2: 'Dependiente'}
-    }
-    return conversiones.get(tipo, {}).get(valor, str(valor))
-
-# --- FUNCIÓN UNIFICADA PARA GENERAR PDF ---
 def generar_pdf_backend(es_simulacion=False, datos_simulacion=None):
-    """
-    Llama al script generate_pdf.py con los argumentos adecuados
-    y devuelve los bytes del PDF generado.
-    """
+    """Genera PDF llamando al script externo"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     script_path = os.path.join(base_dir, "generate_pdf.py")
     base_path_app = "/home/ubuntu/STG-fractura_cadera/2026/app"
     
     if es_simulacion:
         pdf_path = os.path.join(base_path_app, "informes", "simulacion", "informe_final.pdf")
-        
-        # Guardar datos de simulación en archivo temporal
         temp_data_path = os.path.join(base_dir, "temp_simulacion.json")
         with open(temp_data_path, "w") as f:
             json.dump(datos_simulacion, f)
-        
         args = [sys.executable, script_path, "--simulacion"]
     else:
         pdf_path = os.path.join(base_path_app, "informes", "original", "informe_final.pdf")
         args = [sys.executable, script_path]
 
-    # Borrar archivo anterior si existe
     if os.path.exists(pdf_path):
         try:
             os.remove(pdf_path)
@@ -245,234 +163,13 @@ def generar_pdf_backend(es_simulacion=False, datos_simulacion=None):
         else:
             msg = result.stderr if result.stderr else "No se generó el archivo."
             return None, msg
-            
     except Exception as e:
         return None, str(e)
 
 # ==========================================
-# 2. COMPONENTE VISUALIZACIÓN
+# CONFIGURACIÓN INICIAL
 # ==========================================
 
-def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, predict_estancia_total, 
-                          predict_situacion_alta, situacion_alta, categorias_situacion, 
-                          es_simulacion=False, gidenpac="Simulación"):
-    
-    diccionario_colores = { 
-        "Mejora": "#09AB3B",
-        "Empeora": "#FF2B2B"
-    }
-    
-    # Fecha/Hora actual (Madrid)
-    fecha_actual = datetime.now(zona_horaria).strftime("%d/%m/%Y %H:%M")
-    fecha_ingreso = data.get("fllegada_map", fecha_actual) if not es_simulacion else fecha_actual
-    
-    st.markdown(
-        f"""
-        <div style="display: flex; justify-content: flex-end; align-items: center; padding-right: 10px;">
-            <p style="font-size: 16px; margin: 0;">Fecha de ingreso: {fecha_ingreso}</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        f"""
-        <div style="display: flex; justify-content: flex-end; align-items: center; padding-right: 10px;">
-            <p style="font-size: 16px; margin: 0;">Fecha del documento: {fecha_actual}</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    titulo = "Predicción de Fractura de Cadera" if not es_simulacion else "Simulación - Predicción de Fractura de Cadera"
-    st.markdown(f"<h1 style='text-align: center;'>{titulo}</h1>", unsafe_allow_html=True)
-    st.markdown("---")
-    
-    # DATOS DEL PACIENTE
-    st.header("Datos del paciente")
-    
-    # Mostrar ID según el modo
-    if es_simulacion:
-        st.warning(f"**ID paciente: {gidenpac} - SIMULACIÓN**")
-    else:
-        st.success(f"**ID paciente: {gidenpac}**")
-    
-    # Extraer valores (adaptado para simulación)
-    if es_simulacion:
-        sexo = convertir_a_texto(data.get("itipsexo_map", 0), 'sexo')
-        edad = data.get("ds_edad_map", 0)
-        otro_centro = convertir_a_texto(data.get("iotrocen_map", 0), 'binario')
-        lugar_residencia = convertir_a_texto(data.get("ds_centro_afueras_map", 0), 'residencia')
-        tipo_fractura = data.get("gdiagalt_map", "N/A")
-        lado_fractura = convertir_a_texto(data.get("ds_izq_der_map", 0), 'lado')
-    else:
-        sexo = data["itipsexo_map"]
-        edad = data["ds_edad_map"]
-        otro_centro = data["iotrocen_map"]
-        lugar_residencia = data["ds_centro_afueras_map"]
-        tipo_fractura = data["gdiagalt_map"]
-        lado_fractura = data["ds_izq_der_map"]
-    
-    tabla_resumen = pd.DataFrame({
-        "Variable": ["Sexo", "Edad","Procedencia", "Lugar de residencia", "Código CIE", "Lado de fractura"],
-        "Valor": [sexo, edad, otro_centro, lugar_residencia, tipo_fractura, lado_fractura]
-    })
-    st.subheader("Resumen paciente")
-    st.table(tabla_resumen)
-    
-    # RESUMEN PREDICCIONES
-    st.header("Resumen predicciones")
-    st.subheader("Estancia")
-    st.info(f"**Pre-operatorio:** {predict_preoperatorio:.1f} días")
-    st.info(f"**Post-operatorio:** {predict_postoperatorio:.1f} días")
-    st.info(f"**Estancia total:** {predict_estancia_total:.1f} días")
-    
-    st.subheader("Situación al alta")
-    if isinstance(predict_situacion_alta, list) and len(predict_situacion_alta) > 0:
-        prob_max = max(predict_situacion_alta) * 100
-    else:
-        prob_max = 0
-    
-    mensaje_alta = f"**Pronóstico:** {situacion_alta} ({prob_max:.1f}%)"
-    if situacion_alta == "Mejora":
-        st.success(mensaje_alta)
-    elif situacion_alta == "Empeora":
-        st.warning(mensaje_alta)
-    else:
-        st.info(mensaje_alta)
-    
-    # CONSTANTES
-    st.markdown("<div class='no-overlap'></div>", unsafe_allow_html=True)
-    st.header("Constantes del paciente")
-
-    if es_simulacion:
-        ntensmin = data.get("ntensmin_map", 0)
-        ntensmax = data.get("ntensmax_map", 0)
-        ntempera = data.get("ntempera_map", 0)
-        nsatuoxi = data.get("nsatuoxi_map", 0)
-    else:
-        ntensmin = data["ntensmin_map"]
-        ntensmax = data["ntensmax_map"]
-        ntempera = data["ntempera_map"]
-        nsatuoxi = data["nsatuoxi_map"]
-
-    # FORMATEAR VALORES (para ambos modos)
-    ntensmin_fmt = f"{ntensmin:.0f}" if isinstance(ntensmin, (int, float)) else ntensmin
-    ntensmax_fmt = f"{ntensmax:.0f}" if isinstance(ntensmax, (int, float)) else ntensmax
-    ntempera_fmt = f"{ntempera:.1f}" if isinstance(ntempera, (int, float)) else ntempera
-    nsatuoxi_fmt = f"{nsatuoxi:.0f}" if isinstance(nsatuoxi, (int, float)) else nsatuoxi
-
-    tabla_constantes = pd.DataFrame({
-        "Variable": ["Tensión mínima","Tensión máxima", "Temperatura", "Saturación Oxígeno Respiratoria"],
-        "Valor": [ntensmin_fmt, ntensmax_fmt, ntempera_fmt, nsatuoxi_fmt]
-    })
-    st.table(tabla_constantes)
-    
-    # ALERGIAS
-    st.header("Alergias del paciente")
-    
-    if es_simulacion:
-        alergia_medicamentosa = convertir_a_texto(data.get("ds_alergia_medicamentosa_map", 0), 'binario')
-        alergia_alimenticia = convertir_a_texto(data.get("ds_alergia_alimentaria_map", 0), 'binario')
-        otras_alergias = convertir_a_texto(data.get("ds_otra_alergias_map", 0), 'binario')
-    else:
-        alergia_medicamentosa = data.get("ds_alergia_medicamentosa_map")
-        alergia_alimenticia = data.get("ds_alergia_alimentaria_map")
-        otras_alergias = data.get("ds_otra_alergias_map")
-    
-    tabla_alergias = pd.DataFrame({
-        "Variable": ["Alergia medicamentosa", "Alergia alimentaria","Otras alergias"],
-        "Valor": [alergia_medicamentosa, alergia_alimenticia, otras_alergias]
-    })
-    st.table(tabla_alergias)
-    
-    # COMORBILIDADES
-    st.header("Comorbilidades del paciente")
-    
-    if es_simulacion:
-        itu = convertir_a_texto(data.get("ds_ITU_map", 0), 'binario')
-        insuficiencia_respiratoria = convertir_a_texto(data.get("ds_insuficiencia_respiratoria_map", 0), 'binario')
-        insuficiencia_cardiaca = convertir_a_texto(data.get("ds_insuficiencia_cardiaca_map", 0), 'binario')
-        deterioro_cognitivo = convertir_a_texto(data.get("ds_deterioro_cognitivo_map", 0), 'binario')
-        insuficiencia_renal = convertir_a_texto(data.get("ds_insuficiencia_renal_map", 0), 'binario')
-        hta = convertir_a_texto(data.get("ds_HTA_map", 0), 'binario')
-        diabetes = convertir_a_texto(data.get("ds_diabetes_map", 0), 'binario')
-        osteoporosis = convertir_a_texto(data.get("ds_osteoporosis_map", 0), 'binario')
-    else:
-        itu = data["ds_ITU_map"]
-        insuficiencia_respiratoria = data["ds_insuficiencia_respiratoria_map"]
-        insuficiencia_cardiaca = data["ds_insuficiencia_cardiaca_map"]
-        deterioro_cognitivo = data["ds_deterioro_cognitivo_map"]
-        insuficiencia_renal = data["ds_insuficiencia_renal_map"]
-        hta = data["ds_HTA_map"]
-        diabetes = data["ds_diabetes_map"]
-        osteoporosis = data.get("ds_osteoporosis_map")
-    
-    tabla_comorbilidades = pd.DataFrame({
-        "Variable": ["ITU", "Insuficiencia Respiratoria","Insuficiencia Cardíaca", "Deterioro Cognitivo", 
-                     "Insuficiencia Renal", "HTA", "Diabetes","Osteoporosis"],
-        "Valor": [itu, insuficiencia_respiratoria, insuficiencia_cardiaca, deterioro_cognitivo, 
-                  insuficiencia_renal, hta, diabetes, osteoporosis]
-    })
-    st.table(tabla_comorbilidades)
-    
-    # NUTRICIÓN
-    st.header("Nutrición del paciente")
-    
-    if es_simulacion:
-        anemia = convertir_a_texto(data.get("ds_anemia_map", 0), 'binario')
-        vitamina_d = convertir_a_texto(data.get("ds_vitamina_d_map", 0), 'binario')
-        obesidad = convertir_a_texto(data.get("ds_obesidad_map", 0), 'binario')
-        acido_folico = convertir_a_texto(data.get("ds_acido_folico_map", 0), 'binario')
-    else:
-        anemia = data["ds_anemia_map"]
-        vitamina_d = data["ds_vitamina_d_map"]
-        obesidad = data.get("ds_obesidad_map")
-        acido_folico = data.get("ds_acido_folico_map")
-    
-    tabla_nutricion = pd.DataFrame({
-        "Variable": ["Anemia", "Déficit Vitamina D","Obesidad","Ácido fólico"],
-        "Valor": [anemia, vitamina_d, obesidad, acido_folico]
-    })
-    st.table(tabla_nutricion)
-    
-    # GERIATRÍA
-    st.header("Geriatría")
-    
-    if es_simulacion:
-        barthel = data.get("barthel_map", 0)
-        braden = data.get("braden_map", 0)
-        riesgo_caida = convertir_a_texto(data.get("riesgo_caida_map", 0), 'riesgo_caida')
-        movilidad = convertir_a_texto(data.get("movilidad_map", 0), 'movilidad')
-    else:
-        barthel = data["barthel_map"]
-        braden = data["braden_map"]
-        riesgo_caida = data["riesgo_caida_map"]
-        movilidad = data["movilidad_map"]
-    
-    tabla_enfermedades = pd.DataFrame({
-        "Variable": ["Escala de Barthel","Escala de Braden", "Riesgo caida", "Movilidad"],
-        "Valor": [barthel, braden, riesgo_caida, movilidad]
-    })
-    st.table(tabla_enfermedades)
-    
-    # GRÁFICO SITUACIÓN AL ALTA
-    st.markdown("<div class='no-overlap'></div>", unsafe_allow_html=True)
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    
-    colores_dinamicos = [diccionario_colores.get(cat, "gray") for cat in categorias_situacion]
-    crear_tabla_y_grafico(
-        titulo="Probabilidad de situación al alta",
-        categorias=categorias_situacion,
-        porcentajes=predict_situacion_alta,
-        orden=categorias_situacion,
-        colores=colores_dinamicos
-    )
-
-# ==========================================
-# 3. EJECUCIÓN PRINCIPAL
-# ==========================================
-
-# Cargar CSS
 load_css("custom_styles.css")
 
 # Cargar modelos
@@ -487,10 +184,12 @@ diccionario_nombres = {
     1.0: "Empeora", 0.0: "Mejora"
 }
 
+# ==========================================
 # SELECTOR DE MODO
+# ==========================================
+
 st.sidebar.title("⚙️ Configuración")
 
-# CAMBIO CRÍTICO: Si viene de URL simulación, forzar modo
 if modo_url == "simulacion":
     modo = "Simulador"
 else:
@@ -500,16 +199,16 @@ else:
         index=0
     )
 
-# -----------------------------------------------------------------------------
+# ==========================================
 # MODO: VISUALIZACIÓN PACIENTE
-# -----------------------------------------------------------------------------
+# ==========================================
+
 if modo == "Visualización paciente":
-    # Cargar datos desde JSON
     with open("paciente_SRRD193407690.json", "r") as file:
         data_raw = json.load(file)
     
     data = enriquecer_datos_para_ui(data_raw)
-       
+    
     # Calcular predicciones
     calculo_pre = predecir_dias(mod_pre, sc_pre, cols_pre, data)
     calculo_post = predecir_dias(mod_post, sc_post, cols_post, data)
@@ -545,21 +244,19 @@ if modo == "Visualización paciente":
         gidenpac=gidenpac
     )
     
-    # --- DESCARGA PDF: SISTEMA DE 2 PASOS (PACIENTE) ---
+    # Botones de descarga PDF
     st.markdown("---")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 1. Estado
     if 'pdf_paciente_bytes' not in st.session_state:
         st.session_state.pdf_paciente_bytes = None
 
     col_botones = st.columns([1, 3, 1])[1]
     
     with col_botones:
-        # A: Aún no generado -> Botón Generar
         if st.session_state.pdf_paciente_bytes is None:
             if st.button("📄 Generar Informe PDF", type="primary", use_container_width=True):
-                with st.spinner("⏳ Generando informe... (Espere unos segundos)"):
+                with st.spinner(" Generando informe..."):
                     pdf_bytes, error = generar_pdf_backend(es_simulacion=False)
                     
                     if pdf_bytes:
@@ -567,8 +264,6 @@ if modo == "Visualización paciente":
                         st.rerun()
                     else:
                         st.error(f"Error al generar: {error}")
-
-        # B: Generado -> Botón Descargar
         else:
             st.download_button(
                 label="📥 Descargar Informe PDF",
@@ -578,226 +273,25 @@ if modo == "Visualización paciente":
                 type="primary",
                 use_container_width=True
             )
-            
 
-# -----------------------------------------------------------------------------
+# ==========================================
 # MODO: SIMULADOR
-# -----------------------------------------------------------------------------
+# ==========================================
+
 else:
-    
-    # Estado inicial
     if 'simulacion_realizada' not in st.session_state:
         st.session_state.simulacion_realizada = False
     
     if 'pdf_simulacion_bytes' not in st.session_state:
         st.session_state.pdf_simulacion_bytes = None
 
-    # FORMULARIO DE ENTRADA (SOLO SI NO HAY RESULTADOS)
     if not st.session_state.simulacion_realizada:
-        st.header("Datos del paciente")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            sexo_sim = st.selectbox("Sexo", [0, 1], format_func=lambda x: "Mujer" if x==0 else "Hombre")
-            edad_sim = st.number_input("Edad", 0, 120, 75)
-        
-        with col2:
-            otro_centro_sim = st.selectbox("Otro centro", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            lugar_residencia_sim = st.selectbox("Lugar residencia", [0, 1], format_func=lambda x: "Centro" if x==0 else "Afueras")
-        
-        with col3:
-            tipo_fractura_sim = st.text_input("Código CIE", "S72.0")
-            lado_fractura_sim = st.selectbox("Lado fractura", [0, 1], format_func=lambda x: "Izquierdo" if x==0 else "Derecho")
-        
-        st.header("Constantes vitales")
-        col4, col5, col6, col7 = st.columns(4)
-        
-        with col4:
-            ntensmin_sim = st.number_input("Tensión mín (mmHg)", 0, 200, 70)
-        with col5:
-            ntensmax_sim = st.number_input("Tensión máx (mmHg)", 0, 200, 120)
-        with col6:
-            ntempera_sim = st.number_input("Temperatura (°C)", 35.0, 42.0, 36.5, step=0.1)
-        with col7:
-            nsatuoxi_sim = st.number_input("Sat O2 (%)", 0, 100, 95)
-        
-        st.header("Comorbilidades")
-        col8, col9, col10, col11 = st.columns(4)
-        
-        with col8:
-            itu_sim = st.selectbox("ITU", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            insuf_resp_sim = st.selectbox("Insuf. Respiratoria", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            insuf_card_sim = st.selectbox("Insuf. Cardíaca", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        
-        with col9:
-            deterioro_cog_sim = st.selectbox("Deterioro Cognitivo", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            insuf_renal_sim = st.selectbox("Insuf. Renal", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            hta_sim = st.selectbox("HTA", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        
-        with col10:
-            diabetes_sim = st.selectbox("Diabetes", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            obesidad_sim = st.selectbox("Obesidad", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            osteoporosis_sim = st.selectbox("Osteoporosis", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        
-        with col11:
-            anemia_sim = st.selectbox("Anemia", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            vitamina_d_sim = st.selectbox("Déficit Vit. D", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-            acido_folico_sim = st.selectbox("Ácido fólico", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        
-        st.header("Alergias")
-        col12, col13, col14 = st.columns(3)
-        
-        with col12:
-            alergia_med_sim = st.selectbox("Alergia medicamentosa", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        with col13:
-            alergia_alim_sim = st.selectbox("Alergia alimentaria", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        with col14:
-            otras_alergias_sim = st.selectbox("Otras alergias", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        
-        st.header("Escalas geriátricas")
-        col15, col16, col17, col18 = st.columns(4)
-        
-        with col15:
-            barthel_sim = st.number_input("Barthel (0-100)", 0, 100, 60, step=5)
-        with col16:
-            braden_sim = st.number_input("Braden (6-23)", 6, 23, 18)
-        with col17:
-            riesgo_caida_sim = st.selectbox("Riesgo caída", [0, 1, 2], format_func=lambda x: ["Bajo", "Medio", "Alto"][x])
-        with col18:
-            movilidad_sim = st.selectbox("Movilidad", [0, 1, 2], format_func=lambda x: ["Independiente", "Ayuda", "Dependiente"][x])
-        
-        st.markdown("---")
-        
-        # BOTÓN DE PREDICCIÓN
-        if st.button("Calcular predicciones", type="primary", use_container_width=True):
-            # Guardar datos en session_state
-            st.session_state.data_simulado = {
-                "itipsexo_map": sexo_sim,
-                "ds_edad_map": edad_sim,
-                "iotrocen_map": otro_centro_sim,
-                "ds_centro_afueras_map": lugar_residencia_sim,
-                "gdiagalt_map": tipo_fractura_sim,
-                "ds_izq_der_map": lado_fractura_sim,
-                "ntensmin_map": ntensmin_sim,
-                "ntensmax_map": ntensmax_sim,
-                "ntempera_map": ntempera_sim,
-                "nsatuoxi_map": nsatuoxi_sim,
-                "ds_ITU_map": itu_sim,
-                "ds_insuficiencia_respiratoria_map": insuf_resp_sim,
-                "ds_insuficiencia_cardiaca_map": insuf_card_sim,
-                "ds_deterioro_cognitivo_map": deterioro_cog_sim,
-                "ds_insuficiencia_renal_map": insuf_renal_sim,
-                "ds_HTA_map": hta_sim,
-                "ds_diabetes_map": diabetes_sim,
-                "ds_obesidad_map": obesidad_sim,
-                "ds_osteoporosis_map": osteoporosis_sim,
-                "ds_anemia_map": anemia_sim,
-                "ds_vitamina_d_map": vitamina_d_sim,
-                "ds_acido_folico_map": acido_folico_sim,
-                "ds_alergia_medicamentosa_map": alergia_med_sim,
-                "ds_alergia_alimentaria_map": alergia_alim_sim,
-                "ds_otra_alergias_map": otras_alergias_sim,
-                "barthel_map": barthel_sim,
-                "braden_map": braden_sim,
-                "riesgo_caida_map": riesgo_caida_sim,
-                "movilidad_map": movilidad_sim,
-            }
-            # CALCULAR PREDICCIONES
-            with st.spinner("Calculando predicciones..."):
-                # 🔧 CONVERTIR datos de simulación al formato del modelo
-                datos_para_modelo = preparar_datos_para_modelo(st.session_state.data_simulado)
-                
-                st.json(st.session_state.data_simulado)
-                st.json({k: v for k, v in datos_para_modelo.items() if not k.startswith('gdiagalt_')})
-                
-                st.session_state.calculo_pre_sim = predecir_dias(mod_pre, sc_pre, cols_pre, datos_para_modelo)
-                st.session_state.calculo_post_sim = predecir_dias(mod_post, sc_post, cols_post, datos_para_modelo)
-                st.session_state.calculo_estancia_sim = predecir_dias(mod_estancia, sc_estancia, cols_estancia, datos_para_modelo)
-                st.session_state.probs_sit_sim = predecir_probabilidades(mod_sit, sc_sit, cols_sit, datos_para_modelo)
-                
-                # 🔍 MOSTRAR RESULTADOS
-                st.success(f"Pre-op: {st.session_state.calculo_pre_sim:.2f}")
-                st.success(f"Post-op: {st.session_state.calculo_post_sim:.2f}")
-                st.success(f"Estancia: {st.session_state.calculo_estancia_sim:.2f}")
-                st.success(f"Probabilidades: {st.session_state.probs_sit_sim}")
-                
-                if len(st.session_state.probs_sit_sim) > 0:
-                    st.session_state.categorias_situacion_sim = [diccionario_nombres.get(c, str(c)) for c in clases_sit]
-                    idx_max_sim = st.session_state.probs_sit_sim.index(max(st.session_state.probs_sit_sim))
-                    st.session_state.situacion_alta_sim = st.session_state.categorias_situacion_sim[idx_max_sim]
-                else:
-                    st.session_state.categorias_situacion_sim = ["Mejora", "Empeora"]
-                    st.session_state.situacion_alta_sim = "N/A"
-
-            st.session_state.simulacion_realizada = True
-            st.rerun()
-    # MOSTRAR RESULTADOS (Si ya se simuló)
-    if st.session_state.simulacion_realizada:
-        with open("paciente_SRRD193407690.json", "r") as file:
-            data_raw = json.load(file)
-        data_original = enriquecer_datos_para_ui(data_raw)
-        gidenpac_real = data_original["gidenpac"]
-        
-        mostrar_visualizacion(
-            st.session_state.data_simulado,
-            st.session_state.calculo_pre_sim,
-            st.session_state.calculo_post_sim,
-            st.session_state.calculo_estancia_sim,
-            st.session_state.probs_sit_sim,
-            st.session_state.situacion_alta_sim,
-            st.session_state.categorias_situacion_sim,
-            es_simulacion=True,
-            gidenpac=gidenpac_real
+        mostrar_formulario_simulador(
+            predecir_dias, 
+            predecir_probabilidades,
+            cargar_modelo_real,
+            cargar_modelo_clasificacion
         )
-        
-        # BOTONES AL FINAL (DESPUÉS DE MOSTRAR RESULTADOS)
-        st.markdown("---")
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        col_reset, col_download = st.columns([1, 1])
-        
-        with col_reset:
-            if st.button("🔄 Nueva simulación", type="secondary", use_container_width=True):
-                st.session_state.simulacion_realizada = False
-                st.session_state.pdf_simulacion_bytes = None
-                st.rerun()
-        
-        with col_download:
-            # --- DESCARGA PDF: SISTEMA DE 2 PASOS (SIMULADOR) ---
-            if st.session_state.pdf_simulacion_bytes is None:
-                if st.button("📄 Generar PDF Simulación", type="primary", use_container_width=True):
-                    with st.spinner("⏳ Generando PDF de simulación..."):
-                        # Preparar datos completos para el PDF
-                        datos_para_pdf = {
-                            **st.session_state.data_simulado,
-                            "predict_preoperatorio": st.session_state.calculo_pre_sim,
-                            "predict_postoperatorio": st.session_state.calculo_post_sim,
-                            "predict_estancia_total": st.session_state.calculo_estancia_sim,
-                            "predict_situacion_alta": st.session_state.probs_sit_sim,
-                            "situacion_alta": st.session_state.situacion_alta_sim,
-                            "categorias_situacion": st.session_state.categorias_situacion_sim
-                        }
-                        
-                        pdf_bytes, error = generar_pdf_backend(es_simulacion=True, datos_simulacion=datos_para_pdf)
-                        
-                        if pdf_bytes:
-                            st.session_state.pdf_simulacion_bytes = pdf_bytes
-                            st.rerun()
-                        else:
-                            st.error(f"Error: {error}")
-            else:
-                # Nombre de archivo con ID original si está disponible
-                try:
-                    with open("paciente_SRRD193407690.json", "r") as file:
-                         gidenpac_real = json.load(file).get("gidenpac", "simulacion")
-                except:
-                    gidenpac_real = "simulacion"
-
-                st.download_button(
-                    label="📥 Descargar PDF Simulación",
-                    data=st.session_state.pdf_simulacion_bytes,
-                    file_name=f"simulacion_{gidenpac_real}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    type="primary",
-                    use_container_width=True
-                )
+    else:
+        gidenpac_real = mostrar_resultados_simulador()
+        mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend)
