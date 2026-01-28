@@ -37,39 +37,28 @@ async def capture_sections(url, es_simulacion=False):
         page = await browser.newPage()
         await page.setViewport({'width': 1920, 'height': 1080})
 
-        # 3. CARGAR PÁGINA PRIMERO
+        # 3. CARGAR PÁGINA CON PARÁMETROS
         print(f"🌐 Cargando: {url}")
-        response = await page.goto(url, {'waitUntil': 'networkidle2', 'timeout': 60000})
         
+        # Si es simulación, agregar parámetro a la URL
+        if es_simulacion:
+            url_con_params = f"{url}?modo=simulacion"
+        else:
+            url_con_params = url
+            
+        response = await page.goto(url_con_params, {'waitUntil': 'networkidle2', 'timeout': 60000})
+                
         if response.status != 200:
             print(f"❌ Error HTTP: {response.status}")
             await browser.close()
             return None
 
-        # 4. SI ES SIMULACIÓN, HACER CLIC EN EL MODO SIMULADOR
+        # ESPERAR EXTRA SI ES SIMULACIÓN (para que procese el JSON)
         if es_simulacion:
-            print("🔬 Cambiando a modo simulador...")
-            await asyncio.sleep(2)  # Esperar a que cargue
-            
-            # Intentar hacer clic en el radio button de simulador
-            try:
-                await page.evaluate("""() => {
-                    const radios = document.querySelectorAll('input[type="radio"]');
-                    for (let radio of radios) {
-                        if (radio.value === '🔬 Simulador' || radio.nextSibling?.textContent?.includes('Simulador')) {
-                            radio.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                }""")
-                print("✅ Modo simulador activado")
-                await asyncio.sleep(3)  # Esperar a que cargue el contenido de simulación
-            except Exception as e:
-                print(f"⚠️ No se pudo cambiar a modo simulador: {e}")
+            print("⏳ Esperando carga de datos de simulación...")
+            await asyncio.sleep(5)  # Dar tiempo a Streamlit para procesar
 
-        # 5. INYECTAR CSS PARA OCULTAR ELEMENTOS
-
+        # 4. INYECTAR CSS PARA OCULTAR ELEMENTOS
         print("🎨 Cargando estilos y ocultando elementos...")
         await page.addStyleTag({
             'content': """
@@ -115,7 +104,7 @@ async def capture_sections(url, es_simulacion=False):
             """
         })
 
-        # 6. DETECTAR SECCIONES
+        # 5. DETECTAR SECCIONES
         sections = await page.evaluate("""() => {
             const sections = document.querySelectorAll('.no-overlap');
             return Array.from(sections).map((section, index) => (index + 1));
@@ -124,7 +113,7 @@ async def capture_sections(url, es_simulacion=False):
         print(f"📸 Secciones detectadas: {len(sections)}")
         pdfs_raw = []
         
-        # 7. GENERAR PDFs "SIN CAMBIOS" (RAW)
+        # 6. GENERAR PDFs "SIN CAMBIOS" (RAW)
         for index in sections:
             filename_raw = "pdf_raw.pdf"
             if len(sections) > 1:
@@ -151,7 +140,7 @@ async def capture_sections(url, es_simulacion=False):
                 })
                 pdfs_raw.append(full_path_raw)
 
-        # 8. GENERAR PDF FINAL (COMBINADO)
+        # 7. GENERAR PDF FINAL (COMBINADO)
         if pdfs_raw:
             final_filename = "informe_final.pdf"
             full_path_final = os.path.join(output_folder, final_filename)
