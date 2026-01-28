@@ -40,6 +40,64 @@ if modo_url == "simulacion":
 # ==========================================
 # 1. FUNCIONES AUXILIARES Y DE CARGA
 # ==========================================
+def preparar_datos_para_modelo(datos_simulacion):
+    """
+    Convierte datos del simulador (con sufijo _map) al formato que espera el modelo (sin sufijo)
+    y añade las columnas one-hot encoded necesarias
+    """
+    # Cargar datos base del paciente real para obtener estructura completa
+    with open("paciente_SRRD193407690.json", "r") as file:
+        data_base = json.load(file)
+    
+    # Crear diccionario de salida con estructura base
+    datos_modelo = {}
+    
+    # Mapeo de nombres: simulador -> modelo
+    mapeo = {
+        'itipsexo_map': 'itipsexo',
+        'ds_edad_map': 'ds_edad',
+        'iotrocen_map': 'iotrocen',
+        'ds_centro_afueras_map': 'ds_centro_afueras',
+        'ntensmin_map': 'ntensmin',
+        'ntensmax_map': 'ntensmax',
+        'ntempera_map': 'ntempera',
+        'nsatuoxi_map': 'nsatuoxi',
+        'ds_ITU_map': 'ds_ITU',
+        'ds_insuficiencia_respiratoria_map': 'ds_insuficiencia_respiratoria',
+        'ds_insuficiencia_cardiaca_map': 'ds_insuficiencia_cardiaca',
+        'ds_deterioro_cognitivo_map': 'ds_deterioro_cognitivo',
+        'ds_insuficiencia_renal_map': 'ds_insuficiencia_renal',
+        'ds_HTA_map': 'ds_HTA',
+        'ds_diabetes_map': 'ds_diabetes',
+        'ds_obesidad_map': 'ds_obesidad',
+        'ds_osteoporosis_map': 'ds_osteoporosis',
+        'ds_anemia_map': 'ds_anemia',
+        'ds_vitamina_d_map': 'ds_vitamina_d',
+        'ds_acido_folico_map': 'ds_acido_folico',
+        'ds_alergia_medicamentosa_map': 'ds_alergia_medicamentosa',
+        'ds_alergia_alimentaria_map': 'ds_alergia_alimenticia',  # OJO: cambia de alimentaria a alimenticia
+        'ds_otra_alergias_map': 'ds_otras_alergias',  # OJO: cambia de otra a otras
+        'barthel_map': 'Barthel',  # OJO: mayúscula
+        'braden_map': 'braden',
+        'riesgo_caida_map': 'riesgo_caida',
+        'movilidad_map': 'movilidad',
+        'ds_izq_der_map': 'ds_izq_der',
+        'gdiagalt_map': 'gdiagalt'
+    }
+    
+    # Aplicar mapeo
+    for key_simulador, key_modelo in mapeo.items():
+        if key_simulador in datos_simulacion:
+            datos_modelo[key_modelo] = datos_simulacion[key_simulador]
+    
+    # Copiar todas las columnas one-hot encoded del paciente base
+    for key in data_base.keys():
+        if key.startswith('gdiagalt_') or key.startswith('ds_izq_der_') or \
+           key.startswith('ds_dia_semana_') or key.startswith('ds_mes_') or \
+           key.startswith('ds_turno_'):
+            datos_modelo[key] = data_base[key]
+    
+    return datos_modelo
 
 @st.cache_resource
 def cargar_modelo_real(nombre_carpeta):
@@ -64,13 +122,16 @@ def predecir_dias(modelo, scaler, cols, datos_json):
     if modelo is None: return 0.0
     try:
         df_input = pd.DataFrame(columns=cols, dtype=float)
+                
         for col in df_input.columns:
             val = datos_json.get(col, 0)
             df_input.loc[0, col] = float(val)
-            
+        
         pred = modelo.predict(scaler.transform(df_input))[0]
+        
         return max(0, pred)
-    except:
+    except Exception as e:
+        print(f"❌ Error en predicción: {e}")
         return 0.0
 
 @st.cache_resource
@@ -282,7 +343,7 @@ def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, p
     # CONSTANTES
     st.markdown("<div class='no-overlap'></div>", unsafe_allow_html=True)
     st.header("Constantes del paciente")
-    
+
     if es_simulacion:
         ntensmin = data.get("ntensmin_map", 0)
         ntensmax = data.get("ntensmax_map", 0)
@@ -293,10 +354,16 @@ def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, p
         ntensmax = data["ntensmax_map"]
         ntempera = data["ntempera_map"]
         nsatuoxi = data["nsatuoxi_map"]
-    
+
+    # FORMATEAR VALORES (para ambos modos)
+    ntensmin_fmt = f"{ntensmin:.0f}" if isinstance(ntensmin, (int, float)) else ntensmin
+    ntensmax_fmt = f"{ntensmax:.0f}" if isinstance(ntensmax, (int, float)) else ntensmax
+    ntempera_fmt = f"{ntempera:.1f}" if isinstance(ntempera, (int, float)) else ntempera
+    nsatuoxi_fmt = f"{nsatuoxi:.0f}" if isinstance(nsatuoxi, (int, float)) else nsatuoxi
+
     tabla_constantes = pd.DataFrame({
         "Variable": ["Tensión mínima","Tensión máxima", "Temperatura", "Saturación Oxígeno Respiratoria"],
-        "Valor": [ntensmin, ntensmax, ntempera, nsatuoxi]
+        "Valor": [ntensmin_fmt, ntensmax_fmt, ntempera_fmt, nsatuoxi_fmt]
     })
     st.table(tabla_constantes)
     
@@ -442,7 +509,7 @@ if modo == "Visualización paciente":
         data_raw = json.load(file)
     
     data = enriquecer_datos_para_ui(data_raw)
-    
+       
     # Calcular predicciones
     calculo_pre = predecir_dias(mod_pre, sc_pre, cols_pre, data)
     calculo_post = predecir_dias(mod_post, sc_post, cols_post, data)
@@ -527,7 +594,7 @@ else:
 
     # FORMULARIO DE ENTRADA (SOLO SI NO HAY RESULTADOS)
     if not st.session_state.simulacion_realizada:
-        st.header("📋 Datos del paciente")
+        st.header("Datos del paciente")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -542,7 +609,7 @@ else:
             tipo_fractura_sim = st.text_input("Código CIE", "S72.0")
             lado_fractura_sim = st.selectbox("Lado fractura", [0, 1], format_func=lambda x: "Izquierdo" if x==0 else "Derecho")
         
-        st.header("🩺 Constantes vitales")
+        st.header("Constantes vitales")
         col4, col5, col6, col7 = st.columns(4)
         
         with col4:
@@ -554,7 +621,7 @@ else:
         with col7:
             nsatuoxi_sim = st.number_input("Sat O2 (%)", 0, 100, 95)
         
-        st.header("💊 Comorbilidades")
+        st.header("Comorbilidades")
         col8, col9, col10, col11 = st.columns(4)
         
         with col8:
@@ -577,7 +644,7 @@ else:
             vitamina_d_sim = st.selectbox("Déficit Vit. D", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
             acido_folico_sim = st.selectbox("Ácido fólico", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
         
-        st.header("🤧 Alergias")
+        st.header("Alergias")
         col12, col13, col14 = st.columns(3)
         
         with col12:
@@ -587,7 +654,7 @@ else:
         with col14:
             otras_alergias_sim = st.selectbox("Otras alergias", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
         
-        st.header("👴 Escalas geriátricas")
+        st.header("Escalas geriátricas")
         col15, col16, col17, col18 = st.columns(4)
         
         with col15:
@@ -602,7 +669,7 @@ else:
         st.markdown("---")
         
         # BOTÓN DE PREDICCIÓN
-        if st.button("🔮 Calcular predicciones", type="primary", use_container_width=True):
+        if st.button("Calcular predicciones", type="primary", use_container_width=True):
             # Guardar datos en session_state
             st.session_state.data_simulado = {
                 "itipsexo_map": sexo_sim,
@@ -635,13 +702,24 @@ else:
                 "riesgo_caida_map": riesgo_caida_sim,
                 "movilidad_map": movilidad_sim,
             }
-            
             # CALCULAR PREDICCIONES
             with st.spinner("Calculando predicciones..."):
-                st.session_state.calculo_pre_sim = predecir_dias(mod_pre, sc_pre, cols_pre, st.session_state.data_simulado)
-                st.session_state.calculo_post_sim = predecir_dias(mod_post, sc_post, cols_post, st.session_state.data_simulado)
-                st.session_state.calculo_estancia_sim = predecir_dias(mod_estancia, sc_estancia, cols_estancia, st.session_state.data_simulado)
-                st.session_state.probs_sit_sim = predecir_probabilidades(mod_sit, sc_sit, cols_sit, st.session_state.data_simulado)
+                # 🔧 CONVERTIR datos de simulación al formato del modelo
+                datos_para_modelo = preparar_datos_para_modelo(st.session_state.data_simulado)
+                
+                st.json(st.session_state.data_simulado)
+                st.json({k: v for k, v in datos_para_modelo.items() if not k.startswith('gdiagalt_')})
+                
+                st.session_state.calculo_pre_sim = predecir_dias(mod_pre, sc_pre, cols_pre, datos_para_modelo)
+                st.session_state.calculo_post_sim = predecir_dias(mod_post, sc_post, cols_post, datos_para_modelo)
+                st.session_state.calculo_estancia_sim = predecir_dias(mod_estancia, sc_estancia, cols_estancia, datos_para_modelo)
+                st.session_state.probs_sit_sim = predecir_probabilidades(mod_sit, sc_sit, cols_sit, datos_para_modelo)
+                
+                # 🔍 MOSTRAR RESULTADOS
+                st.success(f"Pre-op: {st.session_state.calculo_pre_sim:.2f}")
+                st.success(f"Post-op: {st.session_state.calculo_post_sim:.2f}")
+                st.success(f"Estancia: {st.session_state.calculo_estancia_sim:.2f}")
+                st.success(f"Probabilidades: {st.session_state.probs_sit_sim}")
                 
                 if len(st.session_state.probs_sit_sim) > 0:
                     st.session_state.categorias_situacion_sim = [diccionario_nombres.get(c, str(c)) for c in clases_sit]
@@ -650,10 +728,9 @@ else:
                 else:
                     st.session_state.categorias_situacion_sim = ["Mejora", "Empeora"]
                     st.session_state.situacion_alta_sim = "N/A"
-            
+
             st.session_state.simulacion_realizada = True
             st.rerun()
-
     # MOSTRAR RESULTADOS (Si ya se simuló)
     if st.session_state.simulacion_realizada:
         with open("paciente_SRRD193407690.json", "r") as file:
