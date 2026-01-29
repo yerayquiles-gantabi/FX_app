@@ -4,15 +4,28 @@ from pyppeteer import launch
 from PyPDF2 import PdfReader, PdfWriter
 import nest_asyncio
 import sys
+from pdf_styles import CSS_OCULTAR_STREAMLIT  
 
 # Aplicamos el parche para entornos como Jupyter o Streamlit
 nest_asyncio.apply()
+
+# ========== CONFIGURACIÓN ==========
+BASE_PATH_APP = "/home/ubuntu/STG-fractura_cadera/2026/app"
+URL_STREAMLIT = "http://localhost:8501/"
+
+# Configuración del navegador
+BROWSER_VIEWPORT = {'width': 1920, 'height': 1080}
+BROWSER_ARGS = ['--no-sandbox', '--disable-setuid-sandbox']
+
+# Timeouts
+PAGE_LOAD_TIMEOUT = 60000  # 60 segundos
+SIMULATION_WAIT_TIME = 5   # 5 segundos extra para procesar datos
 
 async def capture_sections(url, es_simulacion=False):
     browser = None
     try:
         # 1. DEFINIR RUTAS
-        base_path = "/home/ubuntu/STG-fractura_cadera/2026/app"
+        base_path = BASE_PATH_APP
         
         # Carpetas diferentes según el modo
         if es_simulacion:
@@ -33,9 +46,9 @@ async def capture_sections(url, es_simulacion=False):
 
         # 2. INICIAR NAVEGADOR
         print("🚀 Lanzando navegador...")
-        browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+        browser = await launch(headless=True, args=BROWSER_ARGS)
         page = await browser.newPage()
-        await page.setViewport({'width': 1920, 'height': 1080})
+        await page.setViewport(BROWSER_VIEWPORT)
 
         # 3. CARGAR PÁGINA CON PARÁMETROS
         print(f"🌐 Cargando: {url}")
@@ -46,7 +59,7 @@ async def capture_sections(url, es_simulacion=False):
         else:
             url_con_params = url
             
-        response = await page.goto(url_con_params, {'waitUntil': 'networkidle2', 'timeout': 60000})
+        response = await page.goto(url_con_params, {'waitUntil': 'networkidle2', 'timeout': PAGE_LOAD_TIMEOUT})
                 
         if response.status != 200:
             print(f"❌ Error HTTP: {response.status}")
@@ -56,53 +69,11 @@ async def capture_sections(url, es_simulacion=False):
         # ESPERAR EXTRA SI ES SIMULACIÓN (para que procese el JSON)
         if es_simulacion:
             print("⏳ Esperando carga de datos de simulación...")
-            await asyncio.sleep(5)  # Dar tiempo a Streamlit para procesar
+            await asyncio.sleep(SIMULATION_WAIT_TIME)
 
-        # 4. INYECTAR CSS PARA OCULTAR ELEMENTOS
+       # 4. INYECTAR CSS PARA OCULTAR ELEMENTOS
         print("🎨 Cargando estilos y ocultando elementos...")
-        await page.addStyleTag({
-            'content': """
-            @page { margin: 1in; }
-            body { margin: 0; padding: 1em; box-sizing: border-box; }
-            .no-overlap { page-break-before: always; }
-            
-            /* --- 1. OCULTAR ESTRUCTURA DE STREAMLIT --- */
-            [data-testid="stSidebar"] { display: none !important; }
-            [data-testid="collapsedControl"] { display: none !important; }
-            header { display: none !important; }
-            footer { display: none !important; }
-            
-            /* Ajustar contenido principal */
-            .main .block-container {
-                max-width: 100% !important;
-                padding-left: 2rem !important;
-                padding-right: 2rem !important;
-            }
-            
-            /* --- 2. ZONA NUCLEAR: OCULTAR TODOS LOS BOTONES --- */
-            
-            /* Ocultar etiquetas button estándar */
-            button { display: none !important; }
-            
-            /* Ocultar contenedores de botones de Streamlit */
-            [data-testid="stButton"] { display: none !important; }
-            
-            /* --- 3. LA SOLUCIÓN AL BOTÓN DE DESCARGA --- */
-            
-            /* Opción A: Por ID de test de Streamlit */
-            [data-testid="stDownloadButton"] { display: none !important; }
-            
-            /* Opción B: Por clase CSS específica */
-            .stDownloadButton { display: none !important; }
-            
-            /* Opción C (LA DEFINITIVA): Ocultar cualquier enlace de descarga */
-            a[download] { display: none !important; visibility: hidden !important; }
-            
-            /* --- 4. LIMPIEZA FINAL --- */
-            hr:last-of-type { display: none !important; }
-            .main .block-container > div:last-child { display: none !important; }
-            """
-        })
+        await page.addStyleTag({'content': CSS_OCULTAR_STREAMLIT})
 
         # 5. DETECTAR SECCIONES
         sections = await page.evaluate("""() => {
@@ -187,7 +158,7 @@ if __name__ == "__main__":
     # Detectar si se pasó argumento para simulación
     es_simulacion = len(sys.argv) > 1 and sys.argv[1] == "--simulacion"
     
-    url = "http://localhost:8501/"
+    url = URL_STREAMLIT
     resultado = asyncio.run(capture_sections(url, es_simulacion=es_simulacion))
     
     # Devolver el path del PDF generado

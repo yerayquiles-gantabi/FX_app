@@ -2,18 +2,22 @@
 Transforma los códigos numéricos del JSON en texto legible para Streamlit.
 Regla: Las nuevas variables se llaman {variable_original}_map
 
-Tambien hace la inversa: convierte datos del simulador (con sufijo _map) al formato que espera el modelo (sin sufijo).
+También hace la inversa: convierte datos del simulador (con sufijo _map) al formato que espera el modelo (sin sufijo).
 '''
 import pandas as pd
+import json
+import os
+
 
 def enriquecer_datos_para_ui(data):
     """
     Recibe el diccionario de datos (data) cargado del JSON.
     Devuelve el mismo diccionario con campos extra '_map' añadidos.
     """
-    if not data: return {}
+    if not data: 
+        return {}
     
-    # 1. Diccionarios de Mapeo
+    # Diccionarios de Mapeo
     MAPPINGS = {
         "sexo": {0: "Hombre", 1: "Mujer"},
         "si_no": {0: "No", 1: "Sí"},
@@ -22,110 +26,130 @@ def enriquecer_datos_para_ui(data):
         "residencia": {1: "Urbano (León)", 0: "Rural/Afueras"},
         "turno": {0: "Mañana", 1: "Tarde", 2: "Noche", None: "Desconocido"}
     }
-
-    # 2. Generación de Textos (Mapeo directo nombre_original -> nombre_original_map)
     
-    # Demográficos
+    # Mapeo automático de variables clínicas (Sí/No)
+    vars_si_no = [
+        "ds_HTA", "ds_diabetes", "ds_deterioro_cognitivo", 
+        "ds_insuficiencia_respiratoria", "ds_insuficiencia_cardiaca", 
+        "ds_anemia", "ds_insuficiencia_renal", "ds_ITU", "ds_vitamina_d", 
+        "ds_osteoporosis", "ds_alergia_medicamentosa", "ds_alergia_alimentaria", 
+        "ds_otra_alergias", "ds_obesidad", "ds_acido_folico"
+    ]
+    
+    for var in vars_si_no:
+        data[f"{var}_map"] = MAPPINGS["si_no"].get(data.get(var), "No")
+    
+    # Variables simples con mapeo directo
     data["itipsexo_map"] = MAPPINGS["sexo"].get(data.get("itipsexo"), "Desconocido")
     data["ds_edad_map"] = f"{data.get('ds_edad', 0)} años"
     data["iotrocen_map"] = MAPPINGS["procedencia"].get(data.get("iotrocen"), "Desconocida")
     data["ds_centro_afueras_map"] = MAPPINGS["residencia"].get(data.get("ds_centro_afueras"), "Desconocida")
-    
-    # -------------------------------------------------------------------------
-    # FECHAS (Combinar Fecha + Hora)
-    # -------------------------------------------------------------------------
-    fecha = data.get("fllegada")
-    hora = data.get("hllegada")
-    
-    if fecha and hora:
-        # Si tenemos fecha y hora separadas en el JSON
-        texto_completo = f"{fecha} {hora}" # Ej: "2026-01-02 17:33:20"
-        try:
-            # Lo convertimos a formato fecha real para formatearlo bonito
-            data["fllegada_map"] = pd.to_datetime(texto_completo).strftime("%d/%m/%Y %H:%M")
-        except:
-            # Si falla el formato, lo mostramos tal cual viene
-            data["fllegada_map"] = texto_completo
-            
-    elif fecha:
-        # Si solo tenemos la fecha
-        try:
-            data["fllegada_map"] = pd.to_datetime(fecha).strftime("%d/%m/%Y")
-        except:
-            data["fllegada_map"] = str(fecha)
-            
-    else:
-        # Fallback para versiones antiguas del JSON
-        raw = data.get("fllegada_raw")
-        if raw:
-            try:
-                data["fllegada_map"] = pd.to_datetime(raw).strftime("%d/%m/%Y %H:%M")
-            except:
-                data["fllegada_map"] = str(raw)
-        else:
-            data["fllegada_map"] = "Desconocida"
-    # Turno
+    data["ds_izq_der_map"] = MAPPINGS["lado"].get(data.get("ds_izq_der"), "Desconocido")
     data["turno_raw_map"] = MAPPINGS["turno"].get(data.get("turno_raw"), "Desconocido")
     
-    # Diagnóstico Lado
-    data["ds_izq_der_map"] = MAPPINGS["lado"].get(data.get("ds_izq_der"), "Desconocido")
+    # Procesamiento de secciones específicas
+    _procesar_fecha_llegada(data)
+    _procesar_escalas(data)
+    _procesar_constantes(data)
+    _procesar_codigos_cie(data)
+    _procesar_situacion_alta(data)
+    
+    return data
 
-    # Clínicos (Sí/No)
-    listado_clinico = [
-        "ds_HTA", "ds_diabetes", "ds_deterioro_cognitivo", 
-        "ds_insuficiencia_respiratoria", "ds_insuficiencia_cardiaca", 
-        "ds_anemia", "ds_insuficiencia_renal", 
-        "ds_ITU", "ds_vitamina_d", "ds_osteoporosis","ds_alergia_medicamentosa",
-        "ds_alergia_alimentaria", "ds_otra_alergias","ds_obesidad", "ds_acido_folico"
+
+def _procesar_fecha_llegada(data):
+    """Procesa y formatea la fecha de llegada"""
+    fecha, hora = data.get("fllegada"), data.get("hllegada")
+    
+    if fecha and hora:
+        try:
+            data["fllegada_map"] = pd.to_datetime(f"{fecha} {hora}").strftime("%d/%m/%Y %H:%M")
+            return
+        except:
+            pass
+    
+    if fecha:
+        try:
+            data["fllegada_map"] = pd.to_datetime(fecha).strftime("%d/%m/%Y")
+            return
+        except:
+            pass
+    
+    # Fallback
+    raw = data.get("fllegada_raw")
+    if raw:
+        try:
+            data["fllegada_map"] = pd.to_datetime(raw).strftime("%d/%m/%Y %H:%M")
+        except:
+            data["fllegada_map"] = str(raw)
+    else:
+        data["fllegada_map"] = "Desconocida"
+
+
+def _procesar_escalas(data):
+    """Procesa las escalas geriátricas"""
+    try:
+        data["barthel_map"] = str(int(float(data.get('barthel', 0))))
+    except:
+        data["barthel_map"] = "0"
+    
+    try:
+        data["movilidad_map"] = str(int(float(data.get('movilidad', 0))))
+    except:
+        data["movilidad_map"] = "0"
+    
+    try:
+        data["braden_map"] = str(int(float(data.get('braden', 0))))
+    except:
+        data["braden_map"] = "0"
+    
+    try:
+        data["riesgo_caida_map"] = str(int(float(data.get('riesgo_caida', 0))))
+    except:
+        data["riesgo_caida_map"] = "0"
+
+
+def _procesar_constantes(data):
+    """Procesa las constantes vitales"""
+    # Variables enteras (tensión, saturación)
+    for var in ["ntensmin", "ntensmax", "nsatuoxi"]:
+        try:
+            valor = data.get(var)
+            if valor is not None:
+                data[f"{var}_map"] = str(int(float(valor)))
+            else:
+                data[f"{var}_map"] = "N/A"
+        except (ValueError, TypeError):
+            data[f"{var}_map"] = "N/A"
+    
+    # Temperatura (1 decimal)
+    try:
+        temp = data.get("ntempera")
+        if temp is not None:
+            data["ntempera_map"] = f"{float(temp):.1f}"
+        else:
+            data["ntempera_map"] = "N/A"
+    except:
+        data["ntempera_map"] = "N/A"
+
+
+def _procesar_codigos_cie(data):
+    """Procesa los códigos CIE de diagnóstico"""
+    codigos_activos = [
+        key.replace("gdiagalt_", "") 
+        for key, value in data.items() 
+        if key.startswith("gdiagalt_") and value in [1, "1"]
     ]
-    
-    for key in listado_clinico:
-        data[f"{key}_map"] = MAPPINGS["si_no"].get(data.get(key), "No")
-
-    # Escalas con descripción
-    # Barthel
-    try:
-        b = int(float(data.get('barthel') or 0)) 
-    except (ValueError, TypeError):
-        b = 0
-    dep = 'Total' if b<20 else 'Grave' if b<60 else 'Leve/Indep'
-    data["barthel_map"] = f"{b}"
-    
-    # Movilidad
-    try:
-        m = int(float(data.get('movilidad') or 0))
-    except (ValueError, TypeError):
-        m = 0
-    data["movilidad_map"] = f"{m} "
-
-    # Braden
-    try:
-        br = int(float(data.get('braden') or 0))
-    except: br = 0
-    data["braden_map"] = str(br)
-
-    # Riesgo Caida
-    try:
-        rc = int(float(data.get('riesgo_caida') or 0))
-    except: rc = 0
-    data["riesgo_caida_map"] = str(rc)
-
-    # Códigos CIE (gdiagalt)
-    codigos_activos = []
-    prefix = "gdiagalt_"
-    for key, value in data.items():
-        if key.startswith(prefix) and (value == 1 or value == "1"):
-            codigos_activos.append(key.replace(prefix, ""))
     data["gdiagalt_map"] = ", ".join(codigos_activos) if codigos_activos else "Sin códigos"
 
-    # -------------------------------------------------------------------------
-    # SITUACIÓN AL ALTA (gsitalta) -> Mejora / Empeora
-    # -------------------------------------------------------------------------
+
+def _procesar_situacion_alta(data):
+    """Procesa la situación al alta"""
     try:
-        val_gsi = int(float(data.get("gsitalta") or 0))
-    except: 
+        val_gsi = int(float(data.get("gsitalta", 0)))
+    except:
         val_gsi = 0
-        
+    
     if val_gsi in [1, 2]:
         data["gsitalta_map"] = "Mejora"
     elif val_gsi in [3, 4, 5]:
@@ -133,34 +157,6 @@ def enriquecer_datos_para_ui(data):
     else:
         data["gsitalta_map"] = "Desconocido"
 
-    # -------------------------------------------------------------------------
-    # FORMATEO DE CONSTANTES VITALES
-    # -------------------------------------------------------------------------
-    
-    # 1. Enteros (Tensión, Saturación) - Quitar decimales
-    vars_enteras = ["ntensmin", "ntensmax", "nsatuoxi"]
-    
-    for v in vars_enteras:
-        valor_raw = data.get(v)
-        try:
-            if valor_raw is not None:
-                data[f"{v}_map"] = str(int(float(valor_raw)))
-            else:
-                data[f"{v}_map"] = "N/A"
-        except (ValueError, TypeError):
-            data[f"{v}_map"] = str(valor_raw) if valor_raw else "N/A"
-
-    # 2. Decimales (Temperatura) - Forzar 1 decimal
-    try:
-        temp = data.get("ntempera")
-        if temp is not None:
-            data["ntempera_map"] = f"{float(temp):.1f}" # Fuerza "36.5"
-        else:
-            data["ntempera_map"] = "N/A"
-    except:
-        data["ntempera_map"] = str(data.get("ntempera", "N/A"))
-
-    return data
 
 def preparar_datos_simulacion_para_modelo(datos_simulacion, ruta_json_base="paciente_SRRD193407690.json"):
     """
@@ -174,26 +170,11 @@ def preparar_datos_simulacion_para_modelo(datos_simulacion, ruta_json_base="paci
     Returns:
         Diccionario con datos en formato del modelo
     """
-    import json
-    import os
-    
-    # Cargar datos base del paciente real para obtener estructura completa
-    try:
-        # Intentar ruta relativa desde app.py
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        ruta_completa = os.path.join(base_dir, ruta_json_base)
-        with open(ruta_completa, "r") as file:
-            data_base = json.load(file)
-    except:
-        # Fallback: intentar desde directorio actual
-        with open(ruta_json_base, "r") as file:
-            data_base = json.load(file)
-    
-    # Crear diccionario de salida
-    datos_modelo = {}
+    # Cargar datos base del paciente real
+    data_base = _cargar_datos_base(ruta_json_base)
     
     # Mapeo de nombres: simulador (_map) -> modelo (sin _map)
-    mapeo = {
+    MAPEO_CAMPOS = {
         'itipsexo_map': 'itipsexo',
         'ds_edad_map': 'ds_edad',
         'iotrocen_map': 'iotrocen',
@@ -215,9 +196,9 @@ def preparar_datos_simulacion_para_modelo(datos_simulacion, ruta_json_base="paci
         'ds_vitamina_d_map': 'ds_vitamina_d',
         'ds_acido_folico_map': 'ds_acido_folico',
         'ds_alergia_medicamentosa_map': 'ds_alergia_medicamentosa',
-        'ds_alergia_alimentaria_map': 'ds_alergia_alimenticia',  # OJO: alimentaria -> alimenticia
-        'ds_otra_alergias_map': 'ds_otras_alergias',  # OJO: otra -> otras
-        'barthel_map': 'Barthel',  # OJO: mayúscula B
+        'ds_alergia_alimentaria_map': 'ds_alergia_alimenticia',  # OJO: cambio de nombre
+        'ds_otra_alergias_map': 'ds_otras_alergias',  # OJO: cambio de nombre
+        'barthel_map': 'Barthel',  # OJO: mayúscula
         'braden_map': 'braden',
         'riesgo_caida_map': 'riesgo_caida',
         'movilidad_map': 'movilidad',
@@ -226,18 +207,33 @@ def preparar_datos_simulacion_para_modelo(datos_simulacion, ruta_json_base="paci
     }
     
     # Aplicar mapeo básico
-    for key_simulador, key_modelo in mapeo.items():
+    datos_modelo = {}
+    for key_simulador, key_modelo in MAPEO_CAMPOS.items():
         if key_simulador in datos_simulacion:
             datos_modelo[key_modelo] = datos_simulacion[key_simulador]
     
-    # Copiar todas las columnas one-hot encoded del paciente base
-    # (necesarias para el modelo pero no editables en el simulador)
-    for key in data_base.keys():
-        if key.startswith('gdiagalt_') or \
-           key.startswith('ds_izq_der_') or \
-           key.startswith('ds_dia_semana_') or \
-           key.startswith('ds_mes_') or \
-           key.startswith('ds_turno_'):
-            datos_modelo[key] = data_base[key]
+    # Copiar columnas one-hot encoded del paciente base
+    PREFIJOS_ONE_HOT = ['gdiagalt_', 'ds_izq_der_', 'ds_dia_semana_', 'ds_mes_', 'ds_turno_']
+    
+    for key, value in data_base.items():
+        if any(key.startswith(prefix) for prefix in PREFIJOS_ONE_HOT):
+            datos_modelo[key] = value
     
     return datos_modelo
+
+
+def _cargar_datos_base(ruta_json_base):
+    """Carga el JSON del paciente base desde diferentes ubicaciones posibles"""
+    try:
+        # Intentar ruta relativa desde utils/
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        ruta_completa = os.path.join(base_dir, '..', ruta_json_base)
+        with open(ruta_completa, "r") as file:
+            return json.load(file)
+    except:
+        # Fallback: directorio actual
+        try:
+            with open(ruta_json_base, "r") as file:
+                return json.load(file)
+        except:
+            raise FileNotFoundError(f"No se encontró el archivo {ruta_json_base}")

@@ -12,122 +12,131 @@ def mostrar_formulario_simulador(predecir_dias_fn, predecir_probabilidades_fn,
                                   cargar_modelo_real_fn, cargar_modelo_clasificacion_fn):
     """Muestra el formulario de entrada de datos para el simulador"""
     
+    # Diccionario para almacenar todos los valores del formulario
+    datos_formulario = {}
+    
+    # ========== DATOS DEL PACIENTE ==========
     st.header("Datos del paciente")
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        sexo_sim = st.selectbox("Sexo", [0, 1], format_func=lambda x: "Mujer" if x==0 else "Hombre")
-        edad_sim = st.number_input("Edad", 0, 120, 75)
+        datos_formulario['itipsexo_map'] = st.selectbox(
+            "Sexo", [0, 1], 
+            format_func=lambda x: "Mujer" if x==0 else "Hombre"
+        )
+        datos_formulario['ds_edad_map'] = st.number_input("Edad", 0, 120, 75)
     
     with col2:
-        otro_centro_sim = st.selectbox("Otro centro", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        lugar_residencia_sim = st.selectbox("Lugar residencia", [0, 1], format_func=lambda x: "Centro" if x==0 else "Afueras")
+        datos_formulario['iotrocen_map'] = st.selectbox(
+            "Otro centro", [0, 1], 
+            format_func=lambda x: "No" if x==0 else "Sí"
+        )
+        datos_formulario['ds_centro_afueras_map'] = st.selectbox(
+            "Lugar residencia", [0, 1], 
+            format_func=lambda x: "Centro" if x==0 else "Afueras"
+        )
     
     with col3:
-        tipo_fractura_sim = st.text_input("Código CIE", "S72.0")
-        lado_fractura_sim = st.selectbox("Lado fractura", [0, 1], format_func=lambda x: "Izquierdo" if x==0 else "Derecho")
+        datos_formulario['gdiagalt_map'] = st.text_input("Código CIE", "S72.0")
+        datos_formulario['ds_izq_der_map'] = st.selectbox(
+            "Lado fractura", [0, 1], 
+            format_func=lambda x: "Izquierdo" if x==0 else "Derecho"
+        )
     
+    # ========== CONSTANTES VITALES ==========
     st.header("Constantes vitales")
     col4, col5, col6, col7 = st.columns(4)
     
     with col4:
-        ntensmin_sim = st.number_input("Tensión mín (mmHg)", 0, 200, 70)
+        datos_formulario['ntensmin_map'] = st.number_input("Tensión mín (mmHg)", 0, 200, 70)
     with col5:
-        ntensmax_sim = st.number_input("Tensión máx (mmHg)", 0, 200, 120)
+        datos_formulario['ntensmax_map'] = st.number_input("Tensión máx (mmHg)", 0, 200, 120)
     with col6:
-        ntempera_sim = st.number_input("Temperatura (°C)", 35.0, 42.0, 36.5, step=0.1)
+        datos_formulario['ntempera_map'] = st.number_input("Temperatura (°C)", 35.0, 42.0, 36.5, step=0.1)
     with col7:
-        nsatuoxi_sim = st.number_input("Sat O2 (%)", 0, 100, 95)
+        datos_formulario['nsatuoxi_map'] = st.number_input("Sat O2 (%)", 0, 100, 95)
     
+    # ========== COMORBILIDADES ==========
     st.header("Comorbilidades")
-    col8, col9, col10, col11 = st.columns(4)
     
-    with col8:
-        itu_sim = st.selectbox("ITU", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        insuf_resp_sim = st.selectbox("Insuf. Respiratoria", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        insuf_card_sim = st.selectbox("Insuf. Cardíaca", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
+    # Definir comorbilidades por columna (reduce código repetitivo)
+    comorbilidades = {
+        'col8': [
+            ('ds_ITU_map', 'ITU'),
+            ('ds_insuficiencia_respiratoria_map', 'Insuf. Respiratoria'),
+            ('ds_insuficiencia_cardiaca_map', 'Insuf. Cardíaca')
+        ],
+        'col9': [
+            ('ds_deterioro_cognitivo_map', 'Deterioro Cognitivo'),
+            ('ds_insuficiencia_renal_map', 'Insuf. Renal'),
+            ('ds_HTA_map', 'HTA')
+        ],
+        'col10': [
+            ('ds_diabetes_map', 'Diabetes'),
+            ('ds_obesidad_map', 'Obesidad'),
+            ('ds_osteoporosis_map', 'Osteoporosis')
+        ],
+        'col11': [
+            ('ds_anemia_map', 'Anemia'),
+            ('ds_vitamina_d_map', 'Déficit Vit. D'),
+            ('ds_acido_folico_map', 'Ácido fólico')
+        ]
+    }
     
-    with col9:
-        deterioro_cog_sim = st.selectbox("Deterioro Cognitivo", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        insuf_renal_sim = st.selectbox("Insuf. Renal", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        hta_sim = st.selectbox("HTA", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
+    cols = st.columns(4)
+    for idx, (col_name, items) in enumerate(comorbilidades.items()):
+        with cols[idx]:
+            for key, label in items:
+                datos_formulario[key] = st.selectbox(
+                    label, [0, 1], 
+                    format_func=lambda x: "No" if x==0 else "Sí",
+                    key=key  # Importante para evitar duplicados
+                )
     
-    with col10:
-        diabetes_sim = st.selectbox("Diabetes", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        obesidad_sim = st.selectbox("Obesidad", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        osteoporosis_sim = st.selectbox("Osteoporosis", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-    
-    with col11:
-        anemia_sim = st.selectbox("Anemia", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        vitamina_d_sim = st.selectbox("Déficit Vit. D", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-        acido_folico_sim = st.selectbox("Ácido fólico", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-    
+    # ========== ALERGIAS ==========
     st.header("Alergias")
-    col12, col13, col14 = st.columns(3)
     
-    with col12:
-        alergia_med_sim = st.selectbox("Alergia medicamentosa", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-    with col13:
-        alergia_alim_sim = st.selectbox("Alergia alimentaria", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
-    with col14:
-        otras_alergias_sim = st.selectbox("Otras alergias", [0, 1], format_func=lambda x: "No" if x==0 else "Sí")
+    alergias = [
+        ('ds_alergia_medicamentosa_map', 'Alergia medicamentosa'),
+        ('ds_alergia_alimentaria_map', 'Alergia alimentaria'),
+        ('ds_otra_alergias_map', 'Otras alergias')
+    ]
     
+    cols = st.columns(3)
+    for idx, (key, label) in enumerate(alergias):
+        with cols[idx]:
+            datos_formulario[key] = st.selectbox(
+                label, [0, 1], 
+                format_func=lambda x: "No" if x==0 else "Sí",
+                key=key
+            )
+    
+    # ========== ESCALAS GERIÁTRICAS ==========
     st.header("Escalas geriátricas")
     col15, col16, col17, col18 = st.columns(4)
     
     with col15:
-        barthel_sim = st.number_input("Barthel (0-100)", 0, 100, 60, step=5)
+        datos_formulario['barthel_map'] = st.number_input("Barthel (0-100)", 0, 100, 60, step=5)
     with col16:
-        braden_sim = st.number_input("Braden (6-23)", 6, 23, 18)
+        datos_formulario['braden_map'] = st.number_input("Braden (6-23)", 6, 23, 18)
     with col17:
-        riesgo_caida_sim = st.selectbox("Riesgo caída", [0, 1, 2], format_func=lambda x: ["Bajo", "Medio", "Alto"][x])
+        datos_formulario['riesgo_caida_map'] = st.selectbox(
+            "Riesgo caída", [0, 1, 2], 
+            format_func=lambda x: ["Bajo", "Medio", "Alto"][x]
+        )
     with col18:
-        movilidad_sim = st.selectbox("Movilidad", [0, 1, 2], format_func=lambda x: ["Independiente", "Ayuda", "Dependiente"][x])
+        datos_formulario['movilidad_map'] = st.selectbox(
+            "Movilidad", [0, 1, 2], 
+            format_func=lambda x: ["Independiente", "Ayuda", "Dependiente"][x]
+        )
     
-    
-# BOTÓN DE PREDICCIÓN CENTRADO (1, 3, 1)
+    # ========== BOTÓN DE PREDICCIÓN ==========
     st.markdown("---")
     
-    # 1. Definimos las columnas para centrar el botón
-    col_izq, col_btn, col_der = st.columns([1, 3, 1])
+    _, col_btn, _ = st.columns([1, 3, 1])
     
-    # 2. Metemos el botón DENTRO de la columna central
     with col_btn:
         if st.button("Calcular predicciones", type="primary", use_container_width=True):
-            
-            # --- TU LÓGICA ORIGINAL (INTACTA) ---
-            datos_formulario = {
-                "itipsexo_map": sexo_sim,
-                "ds_edad_map": edad_sim,
-                "iotrocen_map": otro_centro_sim,
-                "ds_centro_afueras_map": lugar_residencia_sim,
-                "gdiagalt_map": tipo_fractura_sim,
-                "ds_izq_der_map": lado_fractura_sim,
-                "ntensmin_map": ntensmin_sim,
-                "ntensmax_map": ntensmax_sim,
-                "ntempera_map": ntempera_sim,
-                "nsatuoxi_map": nsatuoxi_sim,
-                "ds_ITU_map": itu_sim,
-                "ds_insuficiencia_respiratoria_map": insuf_resp_sim,
-                "ds_insuficiencia_cardiaca_map": insuf_card_sim,
-                "ds_deterioro_cognitivo_map": deterioro_cog_sim,
-                "ds_insuficiencia_renal_map": insuf_renal_sim,
-                "ds_HTA_map": hta_sim,
-                "ds_diabetes_map": diabetes_sim,
-                "ds_obesidad_map": obesidad_sim,
-                "ds_osteoporosis_map": osteoporosis_sim,
-                "ds_anemia_map": anemia_sim,
-                "ds_vitamina_d_map": vitamina_d_sim,
-                "ds_acido_folico_map": acido_folico_sim,
-                "ds_alergia_medicamentosa_map": alergia_med_sim,
-                "ds_alergia_alimentaria_map": alergia_alim_sim,
-                "ds_otra_alergias_map": otras_alergias_sim,
-                "barthel_map": barthel_sim,
-                "braden_map": braden_sim,
-                "riesgo_caida_map": riesgo_caida_sim,
-                "movilidad_map": movilidad_sim,
-            }
-            
             calcular_predicciones_simulador(
                 datos_formulario, 
                 predecir_dias_fn, 
@@ -195,60 +204,40 @@ def mostrar_resultados_simulador():
     return gidenpac_real
 
 
-def mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend_fn):
-    """Muestra botones de acción del simulador"""
+def mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend_fn, manejar_pdf_fn):
+    """
+    Muestra botones de acción del simulador.
+    Ahora delega en la función manejar_generacion_descarga_pdf del app.py
     
+    Args:
+        gidenpac_real: ID del paciente real (para nombre de archivo)
+        generar_pdf_backend_fn: Función generar_pdf_backend de app.py
+        manejar_pdf_fn: Función helper para manejar la generación/descarga de PDF
+    """
     st.markdown("---")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col_reset, col_download = st.columns([1, 1])
+    # Preparar función de generación de PDF
+    def generar_pdf_simulacion():
+        # Preparar datos para PDF
+        datos_para_pdf = {
+            **st.session_state.data_simulado,
+            "predict_preoperatorio": st.session_state.calculo_pre_sim,
+            "predict_postoperatorio": st.session_state.calculo_post_sim,
+            "predict_estancia_total": st.session_state.calculo_estancia_sim,
+            "predict_situacion_alta": st.session_state.probs_sit_sim,
+            "situacion_alta": st.session_state.situacion_alta_sim,
+            "categorias_situacion": st.session_state.categorias_situacion_sim
+        }
+        
+        return generar_pdf_backend_fn(es_simulacion=True, datos_simulacion=datos_para_pdf)
     
-    with col_reset:
-        if st.button("🔄 Nueva simulación", type="secondary", use_container_width=True):
-            st.session_state.simulacion_realizada = False
-            st.session_state.pdf_simulacion_bytes = None
-            st.rerun()
-    
-    with col_download:
-        # CASO A: Aún no generado -> Botón Generar
-        if st.session_state.pdf_simulacion_bytes is None:
-            if st.button("📄 Generar PDF Simulación", type="primary", use_container_width=True):
-                with st.spinner("Generando PDF de simulación..."):
-                    # Preparamos los datos
-                    datos_para_pdf = {
-                        **st.session_state.data_simulado,
-                        "predict_preoperatorio": st.session_state.calculo_pre_sim,
-                        "predict_postoperatorio": st.session_state.calculo_post_sim,
-                        "predict_estancia_total": st.session_state.calculo_estancia_sim,
-                        "predict_situacion_alta": st.session_state.probs_sit_sim,
-                        "situacion_alta": st.session_state.situacion_alta_sim,
-                        "categorias_situacion": st.session_state.categorias_situacion_sim
-                    }
-                    
-                    # Llamada a tu función backend
-                    pdf_bytes, error = generar_pdf_backend_fn(es_simulacion=True, datos_simulacion=datos_para_pdf)
-                    
-                    if pdf_bytes:
-                        st.session_state.pdf_simulacion_bytes = pdf_bytes
-                        # Marcamos éxito para mostrar el aviso tras la recarga
-                        st.session_state.mostrar_aviso_simulacion = True
-                        st.rerun()
-                    else:
-                        st.error(f"Error: {error}")
-
-        # CASO B: Generado y listo para descargar
-        else:
-            # 1. Notificación flotante (solo la primera vez)
-            if st.session_state.get("mostrar_aviso_simulacion"):
-                st.toast("¡Simulación generada correctamente!", icon="✅")
-                st.session_state.mostrar_aviso_simulacion = False
-
-            # 3. Botón de descarga
-            st.download_button(
-                label="📥 Descargar PDF Simulación",
-                data=st.session_state.pdf_simulacion_bytes,
-                file_name=f"simulacion_{gidenpac_real}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                mime="application/pdf",
-                type="primary",
-                use_container_width=True
-            )
+    # Delegar todo el manejo de UI a la función helper
+    manejar_pdf_fn(
+        clave_bytes='pdf_simulacion_bytes',
+        clave_aviso='mostrar_aviso_simulacion',
+        gidenpac=gidenpac_real,
+        generar_pdf_fn=generar_pdf_simulacion,
+        prefijo_archivo="simulacion",
+        es_simulacion=True
+    )

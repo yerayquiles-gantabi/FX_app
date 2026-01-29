@@ -43,6 +43,75 @@ if modo_url == "simulacion":
 # FUNCIONES DE MODELO
 # ==========================================
 
+def manejar_generacion_descarga_pdf(clave_bytes, clave_aviso, gidenpac, generar_pdf_fn, 
+                                     prefijo_archivo="informe", es_simulacion=False):
+    """
+    Maneja el estado y UI completo de generación/descarga de PDF.
+    Muestra botón centrado para generar, y luego botones laterales para resetear/descargar.
+    
+    Args:
+        clave_bytes: Nombre de la variable en session_state para guardar el PDF
+        clave_aviso: Nombre de la variable en session_state para mostrar toast
+        gidenpac: ID del paciente para el nombre del archivo
+        generar_pdf_fn: Función callable que genera el PDF (debe retornar (pdf_bytes, error))
+        prefijo_archivo: Prefijo del nombre del archivo ("informe" o "simulacion")
+        es_simulacion: Si es True, añade "_HHMM" al nombre del archivo
+    """
+    # Inicializar estados si no existen
+    if clave_bytes not in st.session_state:
+        st.session_state[clave_bytes] = None
+    
+    # CASO A: PDF no generado - BOTÓN CENTRADO
+    if st.session_state[clave_bytes] is None:
+        _, col_centro, _ = st.columns([1, 3, 1])
+        
+        with col_centro:
+            label = "📄 Generar PDF Simulación" if es_simulacion else "📄 Generar Informe PDF"
+            if st.button(label, type="primary", use_container_width=True):
+                with st.spinner("Generando informe..."):
+                    pdf_bytes, error = generar_pdf_fn()
+                    
+                    if pdf_bytes:
+                        st.session_state[clave_bytes] = pdf_bytes
+                        st.session_state[clave_aviso] = True
+                        st.rerun()
+                    else:
+                        st.error(f"Error al generar: {error}")
+    
+    # CASO B: PDF generado - BOTONES LATERALES
+    else:
+        # 1. Notificación flotante (solo primera vez)
+        if st.session_state.get(clave_aviso):
+            mensaje = "¡Simulación generada correctamente!" if es_simulacion else "¡Informe generado correctamente!"
+            st.toast(mensaje, icon="✅")
+            st.session_state[clave_aviso] = False
+        
+        # 2. Botones lado a lado
+        col_reset, col_download = st.columns(2)
+        
+        # Botón RESET (gris)
+        with col_reset:
+            label_reset = "🔄 Nueva simulación" if es_simulacion else "🔄 Generar uno nuevo"
+            if st.button(label_reset, type="secondary", use_container_width=True):
+                st.session_state[clave_bytes] = None
+                st.rerun()
+        
+        # Botón DESCARGA (rojo)
+        with col_download:
+            # Generar nombre de archivo
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M') if es_simulacion else datetime.now().strftime('%Y%m%d')
+            nombre_archivo = f"{prefijo_archivo}_{gidenpac}_{timestamp}.pdf"
+            
+            st.download_button(
+                label="📥 Descargar PDF" if not es_simulacion else "📥 Descargar PDF Simulación",
+                data=st.session_state[clave_bytes],
+                file_name=nombre_archivo,
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True
+            )
+            
+            
 @st.cache_resource
 def cargar_modelo_real(nombre_carpeta):
     """Carga modelo de regresión y sus componentes"""
@@ -244,60 +313,18 @@ if modo == "Visualización paciente":
         gidenpac=gidenpac
     )
     
-# -------------------------------------------------------------------------
-    # BOTONES DE DESCARGA - DISEÑO DINÁMICO (Centro -> Lados)
-    # -------------------------------------------------------------------------
+# GENERACIÓN Y DESCARGA DE PDF
     st.markdown("---")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Inicializar estado
-    if 'pdf_paciente_bytes' not in st.session_state:
-        st.session_state.pdf_paciente_bytes = None
-
-    # CASO A: Aún no generado (BOTÓN CENTRADO)
-    if st.session_state.pdf_paciente_bytes is None:
-        # Truco para centrar: Creamos 3 columnas y usamos la del medio.
-        # [1, 2, 1] hace que el botón ocupe el 50% del ancho central.
-        c_izq, c_centro, c_der = st.columns([1, 3, 1])
-        
-        with c_centro:
-            if st.button("📄 Generar Informe PDF", type="primary", use_container_width=True):
-                with st.spinner("Generando informe..."):
-                    pdf_bytes, error = generar_pdf_backend(es_simulacion=False)
-                    
-                    if pdf_bytes:
-                        st.session_state.pdf_paciente_bytes = pdf_bytes
-                        st.session_state.mostrar_aviso_exito = True 
-                        st.rerun()
-                    else:
-                        st.error(f"Error al generar: {error}")
-
-    # CASO B: Generado (BOTONES A LOS LADOS)
-    else:
-        # 1. Notificación flotante (Toast)
-        if st.session_state.get("mostrar_aviso_exito"):
-            st.toast("¡Informe generado correctamente!", icon="✅")
-            st.session_state.mostrar_aviso_exito = False 
-
-        # 3. Columnas divididas 50/50
-        col_reset, col_download = st.columns([1, 1])
-        
-        # --- IZQUIERDA: Botón Nuevo (Gris) ---
-        with col_reset:
-            if st.button("🔄 Generar uno nuevo", type="secondary", use_container_width=True):
-                st.session_state.pdf_paciente_bytes = None
-                st.rerun()
-
-        # --- DERECHA: Botón Descargar (Rojo) ---
-        with col_download:
-            st.download_button(
-                label="📥 Descargar PDF",
-                data=st.session_state.pdf_paciente_bytes,
-                file_name=f"informe_{gidenpac}_{datetime.now().strftime('%Y%m%d')}.pdf",
-                mime="application/pdf",
-                type="primary",
-                use_container_width=True
-            )
+    manejar_generacion_descarga_pdf(
+        clave_bytes='pdf_paciente_bytes',
+        clave_aviso='mostrar_aviso_exito',
+        gidenpac=gidenpac,
+        generar_pdf_fn=lambda: generar_pdf_backend(es_simulacion=False),
+        prefijo_archivo="informe",
+        es_simulacion=False
+    )
 # ==========================================
 # MODO: SIMULADOR
 # ==========================================
@@ -318,4 +345,4 @@ else:
         )
     else:
         gidenpac_real = mostrar_resultados_simulador()
-        mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend)
+        mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend, manejar_generacion_descarga_pdf)
