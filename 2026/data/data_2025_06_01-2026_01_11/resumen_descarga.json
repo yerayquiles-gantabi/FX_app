@@ -1,0 +1,54 @@
+{
+    "total_time_seconds": 292.55,
+    "total_time_formatted": "0:04:52",
+    "endpoints": {
+        "DatosIdentificativosAdministrativos": {
+            "records": 314,
+            "time_seconds": 6.23
+        },
+        "DiagnosticosEnfermeriaCodificados": {
+            "records": 3833,
+            "time_seconds": 14.72
+        },
+        "DiagnosticosMedicosCodificados": {
+            "records": 1430,
+            "time_seconds": 6.96
+        },
+        "ProcedimientosMedicosCodificados": {
+            "records": 484,
+            "time_seconds": 4.57
+        },
+        "PrescripcionFarmacos": {
+            "records": 13612,
+            "time_seconds": 66.96
+        },
+        "InfeccionesNosocomiales": {
+            "records": 0,
+            "time_seconds": 1.9
+        },
+        "InterconsultasSinDocumento": {
+            "records": 1112,
+            "time_seconds": 16.54
+        },
+        "OrdenesMedicas": {
+            "records": 2231,
+            "time_seconds": 9.62
+        },
+        "Prestaciones": {
+            "records": 5549,
+            "time_seconds": 56.96
+        },
+        "ValoracionesAntecedentesPersonales": {
+            "records": 1632,
+            "time_seconds": 10.0
+        },
+        "ValoracionesEnfermeria": {
+            "records": 18566,
+            "time_seconds": 68.08
+        },
+        "CurasVendajes": {
+            "records": 11749,
+            "time_seconds": 30.0
+        }
+    }
+}

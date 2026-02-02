@@ -280,9 +280,11 @@ if modo == "Visualización paciente":
     
     directorio_actual = os.path.dirname(__file__)
     ruta_json = os.path.join(directorio_actual, "paciente_SRRD193407690.json")
+    
     with open(ruta_json, "r") as file:
         data_raw = json.load(file)
     
+    # ... (código anterior de carga del JSON) ...
     data = enriquecer_datos_para_ui(data_raw)
     
     # Calcular predicciones
@@ -291,12 +293,27 @@ if modo == "Visualización paciente":
     calculo_estancia = predecir_dias(mod_estancia, sc_estancia, cols_estancia, data)
     probs_sit = predecir_probabilidades(mod_sit, sc_sit, cols_sit, data)
     
-    gidenpac = data["gidenpac"]
+    gidenpac = data.get("gidenpac", "Desconocido")
+
+    # --- INICIO DEL CAMBIO ---
+    # 1. Recuperamos valores del JSON de forma segura (0.0 si no existen)
+    val_json_pre = data.get("predict_preoperatorio", 0.0)
+    val_json_post = data.get("predict_postoperatorio", 0.0)
     
-    predict_preoperatorio = calculo_pre if mod_pre else data["predict_preoperatorio"]
-    predict_postoperatorio = calculo_post if mod_post else data["predict_postoperatorio"]
-    predict_estancia_total = calculo_estancia if mod_estancia else (predict_preoperatorio + predict_postoperatorio)
+    # 2. Decidimos: ¿Usamos IA o usamos JSON?
+    predict_preoperatorio = calculo_pre if mod_pre else val_json_pre
+    predict_postoperatorio = calculo_post if mod_post else val_json_post
     
+    # 3. Lógica para la estancia total
+    if mod_estancia:
+        predict_estancia_total = calculo_estancia
+    else:
+        # Si no hay IA, intentamos leer del JSON, y si no, sumamos los parciales
+        suma_default = predict_preoperatorio + predict_postoperatorio
+        predict_estancia_total = data.get("predict_estancia_total", suma_default)
+    # --- FIN DEL CAMBIO ---
+
+    # --- AQUI ESTABA EL ERROR: Faltaba este IF ---
     if mod_sit and len(probs_sit) > 0:
         predict_situacion_alta = probs_sit
         categorias_situacion = [diccionario_nombres.get(c, str(c)) for c in clases_sit]
