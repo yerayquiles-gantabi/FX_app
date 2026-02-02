@@ -277,7 +277,10 @@ else:
 # ==========================================
 
 if modo == "Visualización paciente":
-    with open("paciente_SRRD193407690.json", "r") as file:
+    
+    directorio_actual = os.path.dirname(__file__)
+    ruta_json = os.path.join(directorio_actual, "paciente_SRRD193407690.json")
+    with open(ruta_json, "r") as file:
         data_raw = json.load(file)
     
     data = enriquecer_datos_para_ui(data_raw)
