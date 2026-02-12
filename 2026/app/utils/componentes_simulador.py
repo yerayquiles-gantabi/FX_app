@@ -257,17 +257,17 @@ def mostrar_resultados_simulador():
     gidenpac_real = data_original["gidenpac"]
     
     mostrar_visualizacion(
-        st.session_state.data_simulado,
-        st.session_state.calculo_pre_sim,
-        st.session_state.calculo_post_sim,
-        st.session_state.calculo_estancia_sim,
-        st.session_state.probs_sit_sim,
-        st.session_state.situacion_alta_sim,
-        st.session_state.categorias_situacion_sim,
-        es_simulacion=True,
-        gidenpac=gidenpac_real
-    )
-    
+    st.session_state.data_simulado,
+    st.session_state.calculo_pre_sim,
+    st.session_state.calculo_post_sim,
+    st.session_state.calculo_estancia_sim,
+    st.session_state.probs_sit_sim,
+    st.session_state.situacion_alta_sim,
+    st.session_state.categorias_situacion_sim,
+    es_simulacion=True,
+    gidenpac=gidenpac_real,
+    fecha_ingreso_real=data_original.get("fllegada_map", "Desconocida")
+)
     return gidenpac_real
 
 def mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend_fn, manejar_pdf_fn):
@@ -285,6 +285,16 @@ def mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend_fn, mane
 
     # Preparar función de generación de PDF
     def generar_pdf_simulacion():
+        # Cargar fecha de ingreso del paciente real
+        TARGET_ID = os.getenv("PACIENTE_ID")
+        carpeta_pacientes = os.path.join(os.path.dirname(__file__), '..', "pacientes")
+        ruta_json = os.path.join(carpeta_pacientes, f"paciente_{TARGET_ID}.json")
+        
+        with open(ruta_json, "r") as file:
+            data_raw = json.load(file)
+        from utils.utils_mapeo import enriquecer_datos_para_ui
+        data_original = enriquecer_datos_para_ui(data_raw)
+        
         datos_para_pdf = {
             **st.session_state.data_simulado,
             "predict_preoperatorio": st.session_state.calculo_pre_sim,
@@ -292,7 +302,8 @@ def mostrar_botones_accion_simulador(gidenpac_real, generar_pdf_backend_fn, mane
             "predict_estancia_total": st.session_state.calculo_estancia_sim,
             "predict_situacion_alta": st.session_state.probs_sit_sim,
             "situacion_alta": st.session_state.situacion_alta_sim,
-            "categorias_situacion": st.session_state.categorias_situacion_sim
+            "categorias_situacion": st.session_state.categorias_situacion_sim,
+            "fecha_ingreso_real": data_original.get("fllegada_map", "Desconocida")  # ← AÑADIR
         }
         return generar_pdf_backend_fn(es_simulacion=True, datos_simulacion=datos_para_pdf)
 

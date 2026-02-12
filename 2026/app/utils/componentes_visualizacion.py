@@ -49,7 +49,7 @@ def convertir_a_texto(valor, tipo):
 
 def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, predict_estancia_total, 
                           predict_situacion_alta, situacion_alta, categorias_situacion, 
-                          es_simulacion=False, gidenpac="Simulación"):
+                          es_simulacion=False, gidenpac="Simulación", fecha_ingreso_real=None):
     """Muestra la visualización completa del paciente o simulación"""
     
     diccionario_colores = { 
@@ -60,11 +60,10 @@ def mostrar_visualizacion(data, predict_preoperatorio, predict_postoperatorio, p
     # Fecha/Hora actual (Madrid)
     fecha_actual = datetime.now(pytz.UTC).astimezone(zona_horaria).strftime("%d/%m/%Y %H:%M")
     
-    # ← CAMBIAR AQUÍ:
     if es_simulacion:
-        fecha_ingreso = "PACIENTE SIMULADO"  # ← Texto fijo para simulación
+        fecha_ingreso = fecha_ingreso_real if fecha_ingreso_real else "Desconocida"
     else:
-        fecha_ingreso = data.get("fllegada_map", "Desconocida")  # ← Paciente real
+        fecha_ingreso = data.get("fllegada_map", "Desconocida")
     
     st.markdown(
         f"""

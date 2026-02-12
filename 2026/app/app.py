@@ -64,13 +64,14 @@ if modo_url == "simulacion":
             
         st.session_state.simulacion_realizada = True
         st.session_state.data_simulado = {k: v for k, v in datos_temp.items() 
-                                          if not k.startswith('predict') and k not in ['situacion_alta', 'categorias_situacion']}
+                                          if not k.startswith('predict') and k not in ['situacion_alta', 'categorias_situacion', 'fecha_ingreso_real']}
         st.session_state.calculo_pre_sim = datos_temp.get("predict_preoperatorio", 0)
         st.session_state.calculo_post_sim = datos_temp.get("predict_postoperatorio", 0)
         st.session_state.calculo_estancia_sim = datos_temp.get("predict_estancia_total", 0)
         st.session_state.probs_sit_sim = datos_temp.get("predict_situacion_alta", [])
         st.session_state.situacion_alta_sim = datos_temp.get("situacion_alta", "N/A")
         st.session_state.categorias_situacion_sim = datos_temp.get("categorias_situacion", ["Mejora", "Empeora"])
+        st.session_state.fecha_ingreso_real = datos_temp.get("fecha_ingreso_real", "Desconocida")  # ← AÑADIR
 
 # ==========================================
 # FUNCIONES DE MODELO
